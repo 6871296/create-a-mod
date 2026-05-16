@@ -1237,6 +1237,26 @@ def compute_input_hash(main_config):
         except Exception:
             pass
 
+        # Also hash referenced texture images
+        try:
+            with open(fpath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            textures = data.get('textures', {})
+            for tex_val in textures.values():
+                if isinstance(tex_val, str) and tex_val.startswith('./'):
+                    img_path = tex_val[2:]
+                    if not img_path.endswith('.png'):
+                        img_path += '.png'
+                    if os.path.exists(img_path):
+                        with open(img_path, 'rb') as f:
+                            while True:
+                                chunk = f.read(8192)
+                                if not chunk:
+                                    break
+                                hasher.update(chunk)
+        except Exception:
+            pass
+
     return hasher.hexdigest()
 
 
