@@ -915,6 +915,80 @@ def clean_generated_resources(config):
             print(f"Cleaned: {d}")
 
 
+def copy_textures(config):
+    """Copy texture images from createamod/images/ to the resource directory.
+    Matches image filenames against block/item IDs, normalizing underscores and hyphens.
+    """
+    import shutil
+    modid = config['modid']
+    images_dir = 'createamod/images'
+
+    if not os.path.isdir(images_dir):
+        return
+
+    # Build a case-insensitive lookup with both _ and - variants
+    available = {}
+    for fname in os.listdir(images_dir):
+        if fname.lower().endswith('.png'):
+            base = fname[:-4]
+            path = os.path.join(images_dir, fname)
+            for variant in {base.lower(), base.lower().replace('_', '-'), base.lower().replace('-', '_')}:
+                available[variant] = path
+
+    def find_image(candidates):
+        for name in candidates:
+            key = name.lower()
+            if key in available:
+                return available[key]
+        return None
+
+    def should_copy(src, dst):
+        return not os.path.exists(dst) or os.path.getmtime(src) > os.path.getmtime(dst)
+
+    # Block textures
+    for block in config.get('own_blocks', []):
+        block_id = block['id']
+        textures = block.get('textures', {})
+        target_dir = f'src/main/resources/assets/{modid}/textures/block'
+
+        if 'cube_all' in textures:
+            target_path = os.path.join(target_dir, f'{block_id}.png')
+            img = find_image([block_id, f'{block_id}-all', f'{block_id}_all'])
+            if img and should_copy(img, target_path):
+                os.makedirs(target_dir, exist_ok=True)
+                shutil.copy2(img, target_path)
+                print(f"Copied texture: {img} -> {target_path}")
+
+        face_map = {
+            'cube_x+': 'east', 'cube_x-': 'west',
+            'cube_z+': 'south', 'cube_z-': 'north',
+            'cube_y+': 'up', 'cube_y-': 'down',
+        }
+        for key, face in face_map.items():
+            if key in textures:
+                target_path = os.path.join(target_dir, f'{block_id}.png')
+                img = find_image([block_id, f'{block_id}-{face}', f'{block_id}_{face}'])
+                if img and should_copy(img, target_path):
+                    os.makedirs(target_dir, exist_ok=True)
+                    shutil.copy2(img, target_path)
+                    print(f"Copied texture: {img} -> {target_path}")
+
+    # Item textures
+    for item in config.get('own_items', []):
+        item_id = item['id']
+        textures = item.get('textures', {})
+        target_dir = f'src/main/resources/assets/{modid}/textures/item'
+
+        for layer_key in ['layer0', 'layer1']:
+            if layer_key in textures:
+                target_path = os.path.join(target_dir, f'{item_id}.png')
+                img = find_image([item_id])
+                if img and should_copy(img, target_path):
+                    os.makedirs(target_dir, exist_ok=True)
+                    shutil.copy2(img, target_path)
+                    print(f"Copied texture: {img} -> {target_path}")
+
+
 def sync_modid(config, main_config):
     """Sync modid, name, description, author from main config to project files."""
     modid = config['modid']
@@ -1183,6 +1257,7 @@ def main():
     sync_modid(config, main_config)
     sync_group(config)
     clean_generated_resources(config)
+    copy_textures(config)
     generate_mod_blocks(config)
     generate_mod_items(config)
     update_example_mod(config)
