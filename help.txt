@@ -1,0 +1,8 @@
+createamod dev-26050901
+createamod - Minecraft mod creating toolchain for everyone!
+
+Commands:
+	createamod help
+	Show this helping page.
+	createamod new [--mc-version/-mcv <mcVersion>] <projName>
+	This will create and initilize a project as a sub-directory and change the directory to it.

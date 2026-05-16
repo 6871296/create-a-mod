@@ -1,0 +1,43 @@
+{
+	"id":"modid:example-block",
+	"name":{
+		"zh_cn":"示例方块",
+		"en_us":"Example Block"
+	},
+	"textures":{
+		//You can also use "cube_all"/"cube_cross"/"cube_cutout"
+		"cube_x+":"abspath/to/the/western/texture",
+		"cube_x-":"abspath/to/the/eastern/texture",
+		"cube_z+":"abspath/to/the/southern/texture",
+		"cube_z-":"abspath/to/the/northern/texture",
+		"cube_y+":"abspath/to/the/texture/above",
+		"cube_y-":"abspath/to/the/texture/below"
+	},
+	"attributes":{
+		"hardness": 3.0,
+		"resistance": 3.0,
+		"luminance": 0,
+		"slipperiness": 0.6,
+		"sounds": "stone",
+		"map_color": "stone_gray",
+		"instrument": "harp",
+		"requires_tool": false,
+		"break_instantly": false,
+		"non_opaque": false,
+		"no_collision": false,
+		"burnable": false,
+		"replaceable": false,
+		"ticks_randomly": false,
+		"air": false
+	},
+	"tool":[
+		"minecraft:pickaxe"
+	],
+	"drops":[
+		{
+			"id": "modid:example-block",
+			"count": 1,
+			"chance": 1.0
+		}
+	]
+}

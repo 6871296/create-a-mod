@@ -1,0 +1,9 @@
+{//This is the main configuration file for the mod.
+	"id":"modid",
+	"name":"Example Mod",
+	"version":"1.0.0",
+	"description":"",
+	"author":"",
+	"minecraft-version":"1.20",
+	"group":"com.example"
+}

@@ -1,0 +1,251 @@
+{
+	"id": "modid:example_item",
+	"name": {
+		"zh_cn": "示例物品",
+		"en_us": "Example Item"
+	},
+	"textures": {
+		// Items use layer0/layer1/... for overlay textures.
+		// If omitted, defaults to "assets/modid/textures/item/<item_id>"
+		"layer0": "assets/modid/textures/item/example_item"
+	},
+
+	// ========================
+	// COMMON ATTRIBUTES
+	// ========================
+	"attributes": {
+		// Maximum stack size (1 ~ 99). Tools/weapons usually 1.
+		"max_stack": 64,
+
+		// Durability. 0 = infinite, >0 = has durability (e.g. iron pickaxe 250).
+		"durability": 0,
+
+		// Whether the item is fire-resistant like netherite (won't burn in lava).
+		"fire_resistant": false,
+
+		// Rarity affects name color.
+		// Options: "common"(white), "uncommon"(yellow), "rare"(aqua), "epic"(purple)
+		"rarity": "common",
+
+		// Enchantment value: how easy it is to get good enchantments.
+		// Reference: gold 22, leather 15, iron 9, diamond 10, netherite 15, wood 15, stone 5
+		"enchantment_value": 0
+	},
+
+	// ========================
+	// FOOD (omit entire block if not food)
+	// ========================
+	"food": {
+		// Hunger points restored (in half-drumsticks). Steak 8, apple 4.
+		"nutrition": 0,
+
+		// Saturation restored. Golden carrot 14.4, steak 12.8.
+		"saturation": 0,
+
+		// Can be eaten even when hunger is full (e.g. golden apple, chorus fruit).
+		"always_edible": false,
+
+		// Fast eating like dried kelp (0.8s instead of 1.6s).
+		"fast_eating": false,
+
+		// Whether wolves can eat it / villagers treat it as meat.
+		"meat": false,
+
+		// Status effects applied after eating. Empty array = no effects.
+		"effects": [
+			{
+				"effect": "minecraft:regeneration",
+				"duration": 100,
+				"amplifier": 1,
+				"probability": 1.0
+			}
+		]
+	},
+
+	// ========================
+	// TOOL / WEAPON (omit entire block if not tool/weapon)
+	// ========================
+	"tool": {
+		// Tool type determines behavior and effective blocks.
+		// Options: "sword", "pickaxe", "axe", "shovel", "hoe", "shears", "brush", "flint_and_steel"
+		"type": "pickaxe",
+
+		// Mining level. 0=wood/gold, 1=stone, 2=iron, 3=diamond, 4=netherite
+		"mining_level": 2,
+
+		// Mining speed multiplier on correct blocks. Wood 2.0, stone 4.0, iron 6.0, diamond 8.0, netherite 9.0, gold 12.0
+		"mining_speed": 6.0,
+
+		// Bonus attack damage on top of the base 1.0.
+		// Sword examples: wood 3, stone 4, iron 5, diamond 6, netherite 7, gold 3
+		"attack_damage": 5.0,
+
+		// Attack speed (attacks per second). Lower = slower.
+		// Sword 1.6, pickaxe 1.2, axe 0.8~1.0, shovel 1.0, hoe 1.0~4.0
+		"attack_speed": 1.2,
+
+		// Material used to repair this tool in an anvil.
+		"repair_material": "minecraft:iron_ingot"
+	},
+
+	// ========================
+	// ARMOR (omit entire block if not armor)
+	// ========================
+	"armor": {
+		// Armor piece type.
+		// Options: "helmet", "chestplate", "leggings", "boots"
+		"type": "chestplate",
+
+		// Defense points (armor icon halves).
+		// Leather: 1/3/2/1, Chain: 2/5/4/1, Iron: 2/6/5/2, Diamond: 3/8/6/3, Netherite: 3/8/6/3
+		"defense": 6,
+
+		// Armor toughness. Reduces damage from strong attacks.
+		// Diamond 2.0, Netherite 3.0, others 0.0
+		"toughness": 0.0,
+
+		// Knockback resistance (0.0 ~ 1.0). Netherite armor gives 0.1 per piece.
+		"knockback_resistance": 0.0,
+
+		// Material used to repair this armor in an anvil.
+		"repair_material": "minecraft:iron_ingot"
+	},
+
+	// ========================
+	// BOW (omit entire block if not bow)
+	// ========================
+	"bow": {
+		// Draw speed multiplier. Default bow is 1.0 (20 ticks / 1 second).
+		"draw_speed": 1.0,
+
+		// Damage multiplier for fired arrows. Default bow is 1.0.
+		"arrow_damage": 1.0,
+
+		// Arrow velocity multiplier. Default bow is 1.0.
+		"arrow_speed": 1.0
+	},
+
+	// ========================
+	// CROSSBOW (omit entire block if not crossbow)
+	// ========================
+	"crossbow": {
+		// Draw speed multiplier. Default crossbow is 1.0 (25 ticks / 1.25 seconds).
+		"draw_speed": 1.0,
+
+		// Velocity multiplier for fired projectiles.
+		"projectile_speed": 1.0
+	},
+
+	// ========================
+	// SHIELD (omit entire block if not shield)
+	// ========================
+	"shield": {
+		// Cooldown ticks after blocking an attack (disabled by axe). Default 100 ticks (5s).
+		"cooldown": 100
+	},
+
+	// ========================
+	// POTION / SPLASH POTION / LINGERING POTION (omit entire block if not potion)
+	// ========================
+	"potion": {
+		// Potion color in hex format. Default is calculated from effects.
+		"color": "#385DC6",
+
+		// Whether this item can be used as a normal drinkable potion.
+		"drinkable": true,
+
+		// Whether this item can be used as a splash potion (throwable, area effect).
+		"splash": false,
+
+		// Whether this item can be used as a lingering potion (throwable, leaves area effect cloud).
+		"lingering": false,
+
+		// Effects applied when consumed or hit.
+		"effects": [
+			{
+				"effect": "minecraft:healing",
+				"duration": 1,
+				"amplifier": 0,
+				"probability": 1.0
+			}
+		]
+	},
+
+	// ========================
+	// SPAWN EGG (omit entire block if not spawn egg)
+	// ========================
+	"spawn_egg": {
+		// Entity ID this egg spawns.
+		"entity": "minecraft:creeper",
+
+		// Base color of the egg.
+		"base_color": "#22A525",
+
+		// Spot color of the egg.
+		"spot_color": "#111111"
+	},
+
+	// ========================
+	// MUSIC DISC (omit entire block if not music disc)
+	// ========================
+	"music_disc": {
+		// Sound event played when inserted into a jukebox.
+		"sound": "minecraft:music_disc.cat",
+
+		// Length in seconds (shown in tooltip).
+		"length": 185,
+
+		// Comparator output when playing in jukebox (1~15).
+		"comparator_output": 2
+	},
+
+	// ========================
+	// HORSE ARMOR (omit entire block if not horse armor)
+	// ========================
+	"horse_armor": {
+		// Defense bonus for the horse. Leather 3, iron 5, gold 7, diamond 11
+		"defense": 5
+	},
+
+	// ========================
+	// FIREWORK ROCKET (omit entire block if not firework)
+	// ========================
+	"firework": {
+		// Flight duration (1 ~ 3). Determines how far it flies.
+		"flight_duration": 1,
+
+		// Explosion definitions.
+		"explosions": [
+			{
+				// Shape: "small_ball", "large_ball", "star", "creeper", "burst"
+				"shape": "small_ball",
+
+				// Primary colors in hex.
+				"colors": ["#FF0000", "#00FF00"],
+
+				// Fade colors in hex.
+				"fade_colors": ["#FFFF00"],
+
+				// Has trail effect.
+				"trail": false,
+
+				// Has twinkle (flicker) effect.
+				"twinkle": false
+			}
+		]
+	},
+
+	// ========================
+	// ENCHANTED BOOK (omit entire block if not enchanted book)
+	// ========================
+	"enchanted_book": {
+		// Stored enchantments.
+		"enchantments": [
+			{
+				"enchantment": "minecraft:sharpness",
+				"level": 5
+			}
+		]
+	}
+	
+}

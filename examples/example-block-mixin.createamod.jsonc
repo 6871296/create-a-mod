@@ -1,0 +1,22 @@
+{
+	"id": "minecraft:grass_block",
+	"name": {
+		"zh_cn": "修改过的草方块",
+		"en_us": "Edited Grass Block"
+	},
+	"attributes": {
+		"luminance": 5
+	},//This is gonna be weird at night(
+	"drops": [
+		{
+			"id": "minecraft:grass",
+			"count": 1,
+			"chance": 1.0
+		},
+		{
+			"id": "minecraft:grass",
+			"count": 1,
+			"chance": 0.2
+		}//There's a 20% chance to get another grass block
+	]
+}//Yes, block mixin is just this easy
