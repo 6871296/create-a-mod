@@ -9,6 +9,7 @@ import sys
 import re
 import glob
 import zipfile
+import hashlib
 
 SOUND_TYPE_MAP = {
     "stone": "SoundType.STONE",
@@ -1198,8 +1199,71 @@ def sync_group(config):
             print(f"Updated: {client_mixins_json}")
 
 
+def compute_input_hash(main_config):
+    """Compute a SHA-256 hash of all config files referenced in main_config['files']."""
+    hasher = hashlib.sha256()
+    base_dir = 'createamod'
+    files_config = main_config.get('files', [])
+
+    matched_files = set()
+    if isinstance(files_config, dict):
+        for pattern in files_config.values():
+            search_path = os.path.join(base_dir, '**', pattern)
+            for fp in glob.glob(search_path, recursive=True):
+                fp = os.path.normpath(fp)
+                if os.path.basename(fp).lower() != 'config.createamod.json':
+                    matched_files.add(fp)
+    else:
+        for pattern in files_config:
+            search_path = os.path.join(base_dir, '**', pattern)
+            for fp in glob.glob(search_path, recursive=True):
+                fp = os.path.normpath(fp)
+                if os.path.basename(fp).lower() != 'config.createamod.json':
+                    matched_files.add(fp)
+
+    # Also include the main config itself
+    main_path = MAIN_CONFIG_PATH
+    if os.path.exists(main_path):
+        matched_files.add(main_path)
+
+    for fpath in sorted(matched_files):
+        try:
+            with open(fpath, 'rb') as f:
+                while True:
+                    chunk = f.read(8192)
+                    if not chunk:
+                        break
+                    hasher.update(chunk)
+        except Exception:
+            pass
+
+    return hasher.hexdigest()
+
+
+def get_last_hash():
+    path = 'createamod/.lasthash'
+    if os.path.exists(path):
+        with open(path, 'r', encoding='utf-8') as f:
+            return f.read().strip()
+    return ''
+
+
+def save_last_hash(hash_value):
+    path = 'createamod/.lasthash'
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(hash_value)
+
+
 def main():
     main_config = load_main_config()
+
+    current_hash = compute_input_hash(main_config)
+    last_hash = get_last_hash()
+
+    if current_hash == last_hash:
+        print("No changes detected in createamod configs. Skipping update.")
+        return
+
     own_blocks, mixin_blocks, own_items = load_blocks(main_config)
     config = {
         'modid': main_config.get('id', 'modid'),
@@ -1218,6 +1282,7 @@ def main():
     generate_models(config)
     generate_lang(config)
     generate_mixins(config)
+    save_last_hash(current_hash)
     print("\nUpdate complete!")
 
 

@@ -99,7 +99,7 @@ update(){
         echo "Make sure you are inside a createamod project directory."
         exit 1
     fi
-    echo -e "\033[0;1mUpdating mod from createamod/config.createamod.json...\033[0m"
+    echo -e "\033[0;1mUpdating mod...\033[0m"
     python3 "$SCRIPT_DIR/generate.py"
 }
 
@@ -107,6 +107,16 @@ runClient(){
     update
     echo -e "\033[0;1mStarting Minecraft client...\033[0m"
     ./gradlew runClient
+}
+
+export_jar(){
+	shift
+    if [ ! -f "./createamod/config.createamod.json" ]; then
+        echo "Error: createamod/config.createamod.json not found in current directory."
+        echo "Make sure you are inside a createamod project directory."
+        exit 1
+    fi
+	
 }
 
 case "${1:-}" in
@@ -121,6 +131,9 @@ case "${1:-}" in
 		;;
 	"runClient")
 		runClient
+		;;
+	"export")
+		export_jar
 		;;
     "")
         echo "createamod: error: No command specified."
