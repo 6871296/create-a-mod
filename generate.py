@@ -605,7 +605,7 @@ def generate_models(config):
             block_model = {
                 "parent": "minecraft:block/cube_all",
                 "textures": {
-                    "all": textures['cube_all'].replace('assets/', '').replace('/textures', '').replace('/block/', ':block/')
+                    "all": resolve_texture_path(textures['cube_all'], namespace, 'block', block_id)
                 }
             }
         else:
@@ -620,9 +620,7 @@ def generate_models(config):
             }
             for key, face in face_map.items():
                 if key in textures:
-                    val = textures[key]
-                    val = val.replace('assets/', '').replace('/textures', '').replace('/block/', ':block/')
-                    texture_map[face] = val
+                    texture_map[face] = resolve_texture_path(textures[key], namespace, 'block', block_id)
 
             if texture_map:
                 block_model = {
@@ -669,9 +667,7 @@ def generate_models(config):
         texture_map = {}
         for layer_key in ['layer0', 'layer1']:
             if layer_key in textures:
-                val = textures[layer_key]
-                val = val.replace('assets/', '').replace('/textures', '').replace('/item/', ':item/')
-                texture_map[layer_key] = val
+                texture_map[layer_key] = resolve_texture_path(textures[layer_key], namespace, 'item', item_id)
 
         if not texture_map:
             texture_map['layer0'] = f'{namespace}:item/{item_id}'
@@ -915,78 +911,36 @@ def clean_generated_resources(config):
             print(f"Cleaned: {d}")
 
 
-def copy_textures(config):
-    """Copy texture images from createamod/images/ to the resource directory.
-    Matches image filenames against block/item IDs, normalizing underscores and hyphens.
+def resolve_texture_path(val, namespace, asset_type, asset_id):
+    """Resolve a texture path from config.
+
+    Paths starting with './' are treated as relative to the mod project root
+    and the referenced image is copied into the resource directory.
+    Other paths are treated as direct resource references (legacy format).
     """
     import shutil
-    modid = config['modid']
-    images_dir = 'createamod/images'
 
-    if not os.path.isdir(images_dir):
-        return
+    if val.startswith('./'):
+        src_path = val[2:]
+        if not src_path.endswith('.png'):
+            src_path += '.png'
 
-    # Build a case-insensitive lookup with both _ and - variants
-    available = {}
-    for fname in os.listdir(images_dir):
-        if fname.lower().endswith('.png'):
-            base = fname[:-4]
-            path = os.path.join(images_dir, fname)
-            for variant in {base.lower(), base.lower().replace('_', '-'), base.lower().replace('-', '_')}:
-                available[variant] = path
+        target_dir = f'src/main/resources/assets/{namespace}/textures/{asset_type}'
+        target_path = os.path.join(target_dir, f'{asset_id}.png')
 
-    def find_image(candidates):
-        for name in candidates:
-            key = name.lower()
-            if key in available:
-                return available[key]
-        return None
+        if os.path.exists(src_path):
+            os.makedirs(target_dir, exist_ok=True)
+            shutil.copy2(src_path, target_path)
+            print(f"Copied texture: {src_path} -> {target_path}")
+        else:
+            print(f"Warning: texture source not found: {src_path}")
 
-    def should_copy(src, dst):
-        return not os.path.exists(dst) or os.path.getmtime(src) > os.path.getmtime(dst)
+        return f'{namespace}:{asset_type}/{asset_id}'
 
-    # Block textures
-    for block in config.get('own_blocks', []):
-        block_id = block['id']
-        textures = block.get('textures', {})
-        target_dir = f'src/main/resources/assets/{modid}/textures/block'
-
-        if 'cube_all' in textures:
-            target_path = os.path.join(target_dir, f'{block_id}.png')
-            img = find_image([block_id, f'{block_id}-all', f'{block_id}_all'])
-            if img and should_copy(img, target_path):
-                os.makedirs(target_dir, exist_ok=True)
-                shutil.copy2(img, target_path)
-                print(f"Copied texture: {img} -> {target_path}")
-
-        face_map = {
-            'cube_x+': 'east', 'cube_x-': 'west',
-            'cube_z+': 'south', 'cube_z-': 'north',
-            'cube_y+': 'up', 'cube_y-': 'down',
-        }
-        for key, face in face_map.items():
-            if key in textures:
-                target_path = os.path.join(target_dir, f'{block_id}.png')
-                img = find_image([block_id, f'{block_id}-{face}', f'{block_id}_{face}'])
-                if img and should_copy(img, target_path):
-                    os.makedirs(target_dir, exist_ok=True)
-                    shutil.copy2(img, target_path)
-                    print(f"Copied texture: {img} -> {target_path}")
-
-    # Item textures
-    for item in config.get('own_items', []):
-        item_id = item['id']
-        textures = item.get('textures', {})
-        target_dir = f'src/main/resources/assets/{modid}/textures/item'
-
-        for layer_key in ['layer0', 'layer1']:
-            if layer_key in textures:
-                target_path = os.path.join(target_dir, f'{item_id}.png')
-                img = find_image([item_id])
-                if img and should_copy(img, target_path):
-                    os.makedirs(target_dir, exist_ok=True)
-                    shutil.copy2(img, target_path)
-                    print(f"Copied texture: {img} -> {target_path}")
+    # Legacy format: assets/modid/textures/...  ->  modid:...
+    val = val.replace('assets/', '').replace('/textures', '')
+    val = val.replace(f'/block/', ':block/').replace(f'/item/', ':item/')
+    return val
 
 
 def sync_modid(config, main_config):
@@ -1257,7 +1211,6 @@ def main():
     sync_modid(config, main_config)
     sync_group(config)
     clean_generated_resources(config)
-    copy_textures(config)
     generate_mod_blocks(config)
     generate_mod_items(config)
     update_example_mod(config)

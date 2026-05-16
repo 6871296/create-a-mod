@@ -6,8 +6,10 @@
 	},
 	"textures": {
 		// Items use layer0/layer1/... for overlay textures.
-		// If omitted, defaults to "assets/modid/textures/item/<item_id>"
-		"layer0": "assets/modid/textures/item/example_item"
+		// Paths starting with "./" are relative to the mod project root.
+		// The referenced image will be copied to assets/<modid>/textures/item/.
+		// You can also use legacy format: "assets/modid/textures/item/example_item"
+		"layer0": "./createamod/images/example_item"
 	},
 
 	// ========================
