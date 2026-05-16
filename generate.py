@@ -677,7 +677,7 @@ def generate_models(config):
             texture_map['layer0'] = f'{namespace}:item/{item_id}'
 
         item_model = {
-            "parent": "minecraft:generated",
+            "parent": "minecraft:item/generated",
             "textures": texture_map
         }
         path = f'{item_models_dir}/{item_id}.json'
