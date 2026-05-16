@@ -111,18 +111,39 @@ def get_minecraft_block_registry(minecraft_version):
     return blocks
 
 
+def is_item_config(config_data, file_path):
+    """Determine if a config describes an item (not a block)."""
+    path_parts = os.path.normpath(file_path).replace('\\', '/').split('/')
+    if 'items' in path_parts:
+        return True
+    if 'blocks' in path_parts:
+        return False
+
+    textures = config_data.get('textures', {})
+    if any(k.startswith('layer') for k in textures):
+        return True
+    if any(k.startswith('cube') for k in textures):
+        return False
+
+    item_keys = {'food', 'tool', 'armor', 'bow', 'crossbow', 'shield',
+                 'potion', 'spawn_egg', 'music_disc', 'horse_armor',
+                 'firework', 'enchanted_book'}
+    if any(k in config_data for k in item_keys):
+        return True
+
+    return False
+
+
 def load_blocks(main_config):
-    """Load block configs based on the 'files' patterns in main config.
-    Returns (own_blocks, mixin_blocks) where own_blocks belong to this mod
-    and mixin_blocks belong to other namespaces (e.g. minecraft:grass).
-    Mixin blocks targeting non-existent blocks are skipped.
+    """Load block and item configs based on the 'files' field in main config.
+    Supports two formats:
+      - Dict: {"blocks": "...", "items": "..."}
+      - List: ["*.createamod.json"] (backward compatible, uses is_item_config)
+    Returns (own_blocks, mixin_blocks, own_items).
     """
     own_modid = main_config.get('id', 'modid')
     mc_version = main_config.get('minecraft-version', '1.20.6')
-    patterns = main_config.get('files', [])
-    if not patterns:
-        print("Warning: no 'files' patterns in main config, no blocks will be loaded.")
-        return [], []
+    files_config = main_config.get('files', [])
 
     # Load known Minecraft blocks for validation
     known_mc_blocks = get_minecraft_block_registry(mc_version)
@@ -131,46 +152,96 @@ def load_blocks(main_config):
 
     base_dir = 'createamod'
     block_files = set()
-    for pattern in patterns:
-        search_path = os.path.join(base_dir, '**', pattern)
-        matched = glob.glob(search_path, recursive=True)
-        for fp in matched:
-            fp = os.path.normpath(fp)
-            if os.path.basename(fp).lower() == 'config.createamod.json':
-                continue
-            block_files.add(fp)
+    item_files = set()
+
+    if isinstance(files_config, dict):
+        for key, pattern in files_config.items():
+            search_path = os.path.join(base_dir, '**', pattern)
+            matched = glob.glob(search_path, recursive=True)
+            for fp in matched:
+                fp = os.path.normpath(fp)
+                if os.path.basename(fp).lower() == 'config.createamod.json':
+                    continue
+                if key == 'items':
+                    item_files.add(fp)
+                else:
+                    block_files.add(fp)
+    else:
+        # Backward compatible: list of patterns
+        for pattern in files_config:
+            search_path = os.path.join(base_dir, '**', pattern)
+            matched = glob.glob(search_path, recursive=True)
+            for fp in matched:
+                fp = os.path.normpath(fp)
+                if os.path.basename(fp).lower() == 'config.createamod.json':
+                    continue
+                block_files.add(fp)
 
     own_blocks = []
     mixin_blocks = []
+    own_items = []
 
+    # Process block files
     for fp in sorted(block_files):
         try:
             with open(fp, 'r', encoding='utf-8') as f:
-                block = json.load(f)
+                cfg = json.load(f)
 
-            raw_id = block.get('id', '')
+            raw_id = cfg.get('id', '')
             if ':' in raw_id:
                 namespace, block_id = raw_id.split(':', 1)
-                block['namespace'] = namespace
-                block['id'] = block_id
-                if namespace == own_modid:
-                    own_blocks.append(block)
-                    print(f"Loaded own block: {fp} -> {block_id}")
-                else:
-                    # For minecraft namespace, validate existence
-                    if namespace == 'minecraft' and known_mc_blocks and block_id not in known_mc_blocks:
-                        print(f"Ignored: {fp} -> {raw_id} does not exist in Minecraft {mc_version}.")
-                        continue
-                    mixin_blocks.append(block)
-                    print(f"Loaded mixin block: {fp} -> {raw_id}")
+                cfg['namespace'] = namespace
+                cfg['id'] = block_id
             else:
-                block['namespace'] = own_modid
-                own_blocks.append(block)
-                print(f"Loaded own block: {fp} -> {raw_id}")
+                namespace = own_modid
+                cfg['namespace'] = own_modid
+                block_id = raw_id
+
+            if not isinstance(files_config, dict) and is_item_config(cfg, fp):
+                if namespace == own_modid:
+                    own_items.append(cfg)
+                    print(f"Loaded own item: {fp} -> {block_id}")
+                else:
+                    print(f"Warning: item configs must use own modid, skipping {fp}")
+                continue
+
+            if namespace == own_modid:
+                own_blocks.append(cfg)
+                print(f"Loaded own block: {fp} -> {block_id}")
+            else:
+                if namespace == 'minecraft' and known_mc_blocks and block_id not in known_mc_blocks:
+                    print(f"Ignored: {fp} -> {raw_id} does not exist in Minecraft {mc_version}.")
+                    continue
+                mixin_blocks.append(cfg)
+                print(f"Loaded mixin block: {fp} -> {raw_id}")
         except Exception as e:
             print(f"Warning: failed to load {fp}: {e}")
 
-    return own_blocks, mixin_blocks
+    # Process item files
+    for fp in sorted(item_files):
+        try:
+            with open(fp, 'r', encoding='utf-8') as f:
+                cfg = json.load(f)
+
+            raw_id = cfg.get('id', '')
+            if ':' in raw_id:
+                namespace, item_id = raw_id.split(':', 1)
+                cfg['namespace'] = namespace
+                cfg['id'] = item_id
+            else:
+                namespace = own_modid
+                cfg['namespace'] = own_modid
+                item_id = raw_id
+
+            if namespace == own_modid:
+                own_items.append(cfg)
+                print(f"Loaded own item: {fp} -> {item_id}")
+            else:
+                print(f"Warning: item configs must use own modid, skipping {fp}")
+        except Exception as e:
+            print(f"Warning: failed to load {fp}: {e}")
+
+    return own_blocks, mixin_blocks, own_items
 
 
 def generate_mod_blocks(config):
@@ -294,6 +365,136 @@ def build_settings_expr(block):
     return f'{method_name}()'
 
 
+def build_item_props_expr(item):
+    item_id = item['id']
+    method_name = 'createProperties_' + item_id.replace('-', '_').replace('.', '_')
+    return f'{method_name}()'
+
+
+def generate_mod_items(config):
+    modid = config['modid']
+    group = config['group']
+    items = config.get('own_items', [])
+
+    if not items:
+        print("No own items to generate.")
+        return
+
+    lines = [
+        f'package {group}.item;',
+        '',
+        'import net.minecraft.core.Registry;',
+        'import net.minecraft.core.registries.BuiltInRegistries;',
+        'import net.minecraft.resources.ResourceLocation;',
+        'import net.minecraft.world.effect.MobEffectInstance;',
+        'import net.minecraft.world.food.FoodProperties;',
+        'import net.minecraft.world.item.Item;',
+        'import net.minecraft.world.item.Rarity;',
+        '',
+        f'public class ModItems {{',
+        ''
+    ]
+
+    for item in items:
+        item_id = item['id']
+        field_name = const_case(item_id)
+        lines.append(f'    public static Item {field_name};')
+
+    lines.append('')
+    lines.append('    public static void register() {')
+
+    for item in items:
+        item_id = item['id']
+        field_name = const_case(item_id)
+        props_expr = build_item_props_expr(item)
+        lines.append(f'        {field_name} = registerItem("{item_id}", {props_expr});')
+
+    lines.append('    }')
+    lines.append('')
+    lines.append('    private static Item registerItem(String name, Item.Properties properties) {')
+    lines.append('        Item item = new Item(properties);')
+    lines.append(f'        ResourceLocation id = new ResourceLocation("{modid}", name);')
+    lines.append('        Registry.register(BuiltInRegistries.ITEM, id, item);')
+    lines.append('        return item;')
+    lines.append('    }')
+    lines.append('')
+
+    for item in items:
+        item_id = item['id']
+        method_name = 'createProperties_' + item_id.replace('-', '_').replace('.', '_')
+        attrs = item.get('attributes', {})
+
+        body_lines = []
+        body_lines.append('        Item.Properties props = new Item.Properties();')
+
+        max_stack = attrs.get('max_stack', 64)
+        if max_stack != 64:
+            body_lines.append(f'        props = props.stacksTo({max_stack});')
+
+        durability = attrs.get('durability', 0)
+        if durability > 0:
+            body_lines.append(f'        props = props.durability({durability});')
+
+        if attrs.get('fire_resistant', False):
+            body_lines.append('        props = props.fireResistant();')
+
+        rarity = attrs.get('rarity', 'common')
+        if rarity and rarity.lower() != 'common':
+            body_lines.append(f'        props = props.rarity(Rarity.{rarity.upper()});')
+
+        food = item.get('food')
+        if food:
+            body_lines.append('        FoodProperties.Builder foodBuilder = new FoodProperties.Builder();')
+            nutrition = food.get('nutrition', 0)
+            if nutrition > 0:
+                body_lines.append(f'        foodBuilder = foodBuilder.nutrition({nutrition});')
+            saturation = food.get('saturation', 0)
+            if saturation > 0:
+                body_lines.append(f'        foodBuilder = foodBuilder.saturationModifier({saturation}f);')
+            if food.get('always_edible', False):
+                body_lines.append('        foodBuilder = foodBuilder.alwaysEdible();')
+            if food.get('fast_eating', False):
+                body_lines.append('        foodBuilder = foodBuilder.fast();')
+            effects = food.get('effects', [])
+            for effect in effects:
+                effect_id = effect.get('effect', '')
+                duration = effect.get('duration', 100)
+                amplifier = effect.get('amplifier', 0)
+                probability = effect.get('probability', 1.0)
+                if ':' not in effect_id:
+                    effect_id = f'minecraft:{effect_id}'
+                ns, eff_name = effect_id.split(':', 1)
+                body_lines.append('        foodBuilder = foodBuilder.effect(')
+                body_lines.append('            new MobEffectInstance(')
+                body_lines.append(f'                BuiltInRegistries.MOB_EFFECT.getHolder(new ResourceLocation("{ns}", "{eff_name}")).orElseThrow(),')
+                body_lines.append(f'                {duration}, {amplifier}')
+                body_lines.append('            ),')
+                body_lines.append(f'            {probability}f')
+                body_lines.append('        );')
+            body_lines.append('        props = props.food(foodBuilder.build());')
+
+        enchantment_value = attrs.get('enchantment_value', 0)
+        if enchantment_value > 0:
+            body_lines.append(f'        // TODO: enchantment_value ({enchantment_value}) requires DataComponent setup in 1.20.6')
+
+        body_lines.append('        return props;')
+
+        lines.append(f'    private static Item.Properties {method_name}() {{')
+        lines.extend(body_lines)
+        lines.append('    }')
+        lines.append('')
+
+    lines.append('}')
+
+    pkg_path = group.replace('.', '/')
+    output_dir = f'src/main/java/{pkg_path}/item'
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = f'{output_dir}/ModItems.java'
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(lines))
+    print(f"Generated: {output_path}")
+
+
 def update_example_mod(config):
     group = config['group']
     mod_file = f'src/main/java/{group.replace(".", "/")}/ExampleMod.java'
@@ -312,6 +513,13 @@ def update_example_mod(config):
         else:
             content = content.replace('package ', f'{import_line}\n\npackage ', 1)
 
+    import_line_items = f'import {group}.item.ModItems;'
+    if import_line_items not in content:
+        if 'import ' in content:
+            content = content.replace('import ', f'{import_line_items}\nimport ', 1)
+        else:
+            content = content.replace('package ', f'{import_line_items}\n\npackage ', 1)
+
     register_call = 'ModBlocks.register();'
     if register_call not in content:
         if 'LOGGER.info' in content:
@@ -329,6 +537,24 @@ def update_example_mod(config):
             content = content.rstrip()
             if content.endswith('}'):
                 content = content[:-1] + f'        {register_call}\n    }}\n}}'
+
+    register_call_items = 'ModItems.register();'
+    if register_call_items not in content:
+        if 'LOGGER.info' in content:
+            lines = content.split('\n')
+            new_lines = []
+            inserted = False
+            for i, line in enumerate(lines):
+                new_lines.append(line)
+                if not inserted and 'LOGGER.info' in line and i + 1 < len(lines):
+                    indent = '        '
+                    new_lines.append(f'{indent}{register_call_items}')
+                    inserted = True
+            content = '\n'.join(new_lines)
+        else:
+            content = content.rstrip()
+            if content.endswith('}'):
+                content = content[:-1] + f'        {register_call_items}\n    }}\n}}'
 
     with open(mod_file, 'w', encoding='utf-8') as f:
         f.write(content)
@@ -430,6 +656,35 @@ def generate_models(config):
                 json.dump(item_model, f, indent=4, ensure_ascii=False)
             print(f"Generated: {path}")
 
+    # Item models
+    own_items = config.get('own_items', [])
+    for item in own_items:
+        item_id = item['id']
+        namespace = item.get('namespace', config['modid'])
+        textures = item.get('textures', {})
+
+        item_models_dir = f'src/main/resources/assets/{namespace}/models/item'
+        os.makedirs(item_models_dir, exist_ok=True)
+
+        texture_map = {}
+        for layer_key in ['layer0', 'layer1']:
+            if layer_key in textures:
+                val = textures[layer_key]
+                val = val.replace('assets/', '').replace('/textures', '').replace('/item/', ':item/')
+                texture_map[layer_key] = val
+
+        if not texture_map:
+            texture_map['layer0'] = f'{namespace}:item/{item_id}'
+
+        item_model = {
+            "parent": "minecraft:generated",
+            "textures": texture_map
+        }
+        path = f'{item_models_dir}/{item_id}.json'
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(item_model, f, indent=4, ensure_ascii=False)
+        print(f"Generated: {path}")
+
 
 def generate_lang(config):
     own_blocks = config.get('own_blocks', [])
@@ -442,6 +697,17 @@ def generate_lang(config):
         namespace = block.get('namespace', config['modid'])
         names = block.get('name', {})
         key = f'block.{namespace}.{block_id}'
+        for lang_code, value in names.items():
+            if lang_code not in lang_data:
+                lang_data[lang_code] = {}
+            lang_data[lang_code][key] = value
+
+    own_items = config.get('own_items', [])
+    for item in own_items:
+        item_id = item['id']
+        namespace = item.get('namespace', config['modid'])
+        names = item.get('name', {})
+        key = f'item.{namespace}.{item_id}'
         for lang_code, value in names.items():
             if lang_code not in lang_data:
                 lang_data[lang_code] = {}
@@ -906,17 +1172,19 @@ def sync_group(config):
 
 def main():
     main_config = load_main_config()
-    own_blocks, mixin_blocks = load_blocks(main_config)
+    own_blocks, mixin_blocks, own_items = load_blocks(main_config)
     config = {
         'modid': main_config.get('id', 'modid'),
         'group': main_config.get('group', 'com.example'),
         'own_blocks': own_blocks,
         'mixin_blocks': mixin_blocks,
+        'own_items': own_items,
     }
     sync_modid(config, main_config)
     sync_group(config)
     clean_generated_resources(config)
     generate_mod_blocks(config)
+    generate_mod_items(config)
     update_example_mod(config)
     generate_blockstates(config)
     generate_models(config)
