@@ -1,0 +1,259 @@
+{
+	// ============================
+	// 实体唯一标识与名称
+	// ============================
+	"id": "modid:example_entity",
+	"name": {
+		"zh_cn": "示例实体",
+		"en_us": "Example Entity"
+	},
+
+	// ============================
+	// 实体基类 (BASE CLASS)
+	// ============================
+	// 决定该实体继承自哪个 Minecraft 底层类，影响默认行为、AI 槽位、渲染方式等。
+	// 可选值:
+	//   "mob"          - 通用生物 (Mob)，最基础的行走生物基类
+	//   "animal"       - 被动动物 (Animal)，可被繁殖、有幼年形态
+	//   "monster"      - 敌对怪物 (Monster)，在黑暗中主动攻击玩家
+	//   "water_animal" - 水生生物 (WaterAnimal)，能在水中呼吸、有游泳 AI
+	//   "ambient"      - 环境生物 (AmbientCreature)，如蝙蝠，不影响刷怪上限
+	//   "flying"       - 飞行生物 (FlyingMob)，自带飞行移动控制器
+	"base": "animal",
+
+	// ============================
+	// 碰撞箱 (HITBOX)
+	// ============================
+	// width/height 决定实体的物理碰撞箱尺寸。
+	// eye_height 决定视角射线起始高度（如射箭、玩家准心判定）。
+	// fixed=true 表示碰撞箱不随实体缩放/变形而改变（极少使用）。
+	"hitbox": {
+		"width": 0.6,
+		"height": 1.8,
+		"eye_height": 1.62,
+		"fixed": false
+	},
+
+	// ============================
+	// 基础属性 (ATTRIBUTES)
+	// ============================
+	// 所有属性都会通过 DefaultAttributeRegistry 注册到实体类型上。
+	// 若省略某项，则使用该基类的原版默认值。
+	//
+	// health              - 最大生命值。动物通常 10~20，怪物 20~40，Boss 100+
+	// movement_speed      - 移动速度。玩家为 0.1，普通动物 0.2~0.3，苦力怕 0.25
+	// attack_damage       - 近战攻击伤害（仅当 AI 包含 attack_melee 时生效）
+	// attack_knockback    - 攻击附加的击退力度。僵尸 1.0，铁傀儡 3.0
+	// armor               - 护甲值。同玩家护甲机制，0~30
+	// armor_toughness     - 护甲韧性，减少高伤害穿透。钻石级约 2~3
+	// knockback_resistance- 击退抗性，0.0~1.0。铁傀儡 1.0（完全免疫）
+	// follow_range        - AI 追踪目标的最大距离。僵尸 35.0，末影人 64.0
+	// flying_speed        - 飞行速度，仅 base="flying" 时有效。蜜蜂约 0.6
+	"attributes": {
+		"health": 20,
+		"movement_speed": 0.25,
+		"attack_damage": 3,
+		"attack_knockback": 0,
+		"armor": 0,
+		"armor_toughness": 0,
+		"knockback_resistance": 0,
+		"follow_range": 16,
+		"flying_speed": 0.4
+	},
+
+	// ============================
+	// 自然生成 (SPAWN)
+	// ============================
+	// 控制该实体在世界中的自然生成规则。
+	// 若 enabled=false，则该实体只能通过刷怪蛋、命令或刷怪笼生成。
+	//
+	// weight       - 在同类生物群系中的生成权重，越大越常见。牛为 8，羊为 12
+	// min_count    - 单次成群生成的最小数量
+	// max_count    - 单次成群生成的最大数量
+	// biomes       - 允许生成的生物群系列表。支持标签写法如 "#minecraft:is_forest"
+	// category     - 刷怪分类，影响上限和性能。
+	//                可选: "monster"(敌对70上限) "creature"(被动10) "ambient"(环境15)
+	//                       "water_creature"(水生物5) "water_ambient"(环境水生20) "misc"(杂项)
+	// light_min/max- 允许的亮度范围。敌对怪物通常 0~7，动物 7~15
+	// height       - 允许生成的高度范围（y 坐标）。可省略表示不限
+	"spawn": {
+		"enabled": true,
+		"weight": 10,
+		"min_count": 1,
+		"max_count": 4,
+		"biomes": ["minecraft:plains", "minecraft:forest", "#minecraft:is_taiga"],
+		"category": "creature",
+		"light_min": 7,
+		"light_max": 15,
+		"height": {
+			"min": 60,
+			"max": 320
+		}
+	},
+
+	// ============================
+	// AI 行为目标 (GOALS)
+	// ============================
+	// priority 数值越小优先级越高。同优先级按添加顺序执行。
+	// 以下是常用 goal 类型，base 不同可用的类型也不同:
+	//
+	// "swim"                - 在水中上浮防止溺亡，priority 通常设为 0
+	// "float"               - 在岩浆/水中漂浮，防止下沉
+	// "panic"               - 受击后 speed 倍速逃跑一段时间
+	// "wander"              - 随机闲逛。可配 speed: 闲逛移动速度倍率
+	// "wander_avoid_water"  - 随机闲逛但主动避开水域
+	// "look_at_player"      - 注视附近玩家。distance: 注视触发距离
+	// "look_randomly"       - 随机转头，增加生动感
+	// "attack_melee"        - 近战攻击。speed: 接近目标时的移动速度
+	// "attack_ranged"       - 远程攻击（如骷髅射箭）。需额外配 attack_interval、range
+	// "avoid_entity"        - 躲避指定实体。target: 实体ID，distance: 触发距离，speed: 逃跑速度
+	// "follow_owner"        - 跟随主人（仅驯服后）。speed: 跟随速度
+	// "breed"               - 寻找附近同类进行繁殖。speed: 走向配偶的速度
+	// "tempt"               - 被手持食物吸引。item: 物品ID，speed: 跟随速度
+	// "eat_grass"           - 低头吃草方块/高草（如羊）
+	// "leap_at_target"      - 向目标跳跃（如狼、蜘蛛）
+	//
+	// targets 是独立的 AI 目标选择器，决定"攻击谁/追踪谁":
+	// "nearest_attackable"  - 攻击最近的符合条件的实体
+	// "hurt_by"             - 反击攻击过自己的实体
+	// "owner_attacker"      - 保护主人，攻击伤害主人的实体（仅驯服宠物）
+	"ai": {
+		"goals": [
+			{ "type": "swim", "priority": 0 },
+			{ "type": "panic", "priority": 1, "speed": 1.25 },
+			{ "type": "wander", "priority": 5 },
+			{ "type": "look_at_player", "priority": 6, "distance": 6.0 },
+			{ "type": "look_randomly", "priority": 6 }
+		],
+		"targets": [
+			{ "type": "nearest_attackable", "priority": 1, "target_class": "Player", "check_visibility": true },
+			{ "type": "hurt_by_target", "priority": 2 }
+		]
+	},
+
+	// ============================
+	// 掉落物 (DROPS)
+	// ============================
+	// 实体死亡时掉落的物品。
+	// count 可以是固定整数，也可以是 { min, max } 随机范围。
+	// looting_bonus 表示每级抢夺附魔额外增加的最大数量。
+	// chance 是本次掉落触发的概率，1.0 = 必掉。
+	"drops": [
+		{
+			"id": "minecraft:leather",
+			"count": { "min": 0, "max": 2 },
+			"looting_bonus": 1,
+			"chance": 1.0
+		},
+		{
+			"id": "minecraft:beef",
+			"count": 1,
+			"looting_bonus": 1,
+			"chance": 1.0
+		}
+	],
+
+	// ============================
+	// 声音 (SOUNDS)
+	// ============================
+	// 实体在不同状态下播放的声音事件。
+	// 所有值都是 Minecraft 声音事件 ID，如 "minecraft:entity.cow.ambient"。
+	// ambient_interval 控制环境音的随机播放间隔（单位: tick，20 tick = 1秒）。
+	// 若省略某项，则该状态下不播放声音或使用基类默认。
+	"sounds": {
+		"ambient": "minecraft:entity.cow.ambient",
+		"hurt": "minecraft:entity.cow.hurt",
+		"death": "minecraft:entity.cow.death",
+		"step": "minecraft:entity.cow.step",
+		"ambient_interval": { "min": 80, "max": 160 }
+	},
+
+	// ============================
+	// 纹理与模型 (TEXTURES)
+	// ============================
+	// entity 贴图路径。运行 update 后会从 createamod/images/ 自动复制到
+	// src/main/resources/assets/<modid>/textures/entity/<entity_id>.png
+	// 若使用 GeckoLib 等动画框架，可扩展 model/animation 字段。
+	"textures": {
+		"entity": "assets/modid/textures/entity/example_entity"
+	},
+
+	// ============================
+	// 特性 / 免疫 / 交互 (TRAITS)
+	// ============================
+	// 控制实体的各种布尔特性。
+	// 所有项默认 false，填 true 才开启。
+	//
+	// fire_immune            - 完全免疫火焰/岩浆伤害。如下界生物
+	// immune_to_fall         - 免疫摔落伤害。如鸡、铁傀儡
+	// immune_to_drowning     - 免疫溺水伤害且水下不消耗氧气。如鱿鱼
+	// immune_to_suffocation   - 免疫窒息/挤压伤害。如末影龙
+	// can_breathe_underwater  - 可在水下呼吸但不免疫其他伤害。如海龟
+	// is_pushed_by_fluids     - 是否被水流/岩浆推动。false = 像鱿鱼一样无视水流
+	// can_be_leashed          - 玩家是否可以用拴绳牵引该实体
+	// can_pick_up_loot        - 是否能像僵尸/骷髅一样捡起地上的装备和物品
+	// persistent              - 是否不会因玩家远离而自然消失（如命名牌效果）
+	"traits": {
+		"fire_immune": false,
+		"immune_to_fall": false,
+		"immune_to_drowning": false,
+		"immune_to_suffocation": false,
+		"can_breathe_underwater": false,
+		"is_pushed_by_fluids": true,
+		"can_be_leashed": true,
+		"can_pick_up_loot": false,
+		"persistent": false
+	},
+
+	// ============================
+	// 繁殖 (BREEDING)
+	// ============================
+	// 仅当 base="animal" 时生效。
+	// enabled=false 表示该实体不可繁殖（如鸡、狼的野生状态）。
+	// food 是吸引/触发繁殖的物品列表，玩家手持其中任一物品时实体会被吸引。
+	// baby_growth_ticks 是幼年到成年所需的游戏刻。12000 tick = 10分钟
+	"breeding": {
+		"enabled": true,
+		"food": ["minecraft:wheat", "minecraft:carrot"],
+		"baby_growth_ticks": 12000
+	},
+
+	// ============================
+	// 驯服 (TAMING)
+	// ============================
+	// 仅部分动物支持驯服（如狼、猫、马、鹦鹉）。
+	// enabled=true 时，玩家对实体使用指定 item 可尝试驯服。
+	// tame_chance 是每次使用物品时的成功概率，0.33 = 33%。
+	// 若实体被驯服，会生成一个 owner 并解锁 follow_owner AI。
+	"taming": {
+		"enabled": false,
+		"item": "minecraft:bone",
+		"tame_chance": 0.33
+	},
+
+	// ============================
+	// 骑乘 (RIDEABLE)
+	// ============================
+	// 控制玩家是否可以骑乘该实体。
+	// saddle_required 为 true 时必须先装备鞍（如猪、炽足兽）。
+	// can_control 为 true 时玩家可用方向键控制移动（如马）；false 时实体自主移动（如猪用胡萝卜钓竿）。
+	// ridden_speed 是骑乘时的基础移动速度倍率。
+	"rideable": {
+		"enabled": false,
+		"saddle_required": false,
+		"can_control": true,
+		"ridden_speed": 0.35
+	},
+
+	// ============================
+	// 环境粒子效果 (PARTICLES)
+	// ============================
+	// 实体周围随机播放的粒子效果，用于增加氛围。
+	// chance 是每 tick 产生粒子的概率。0.01 = 平均约每 5 秒出现一次。
+	"particles": {
+		"ambient": {
+			"type": "minecraft:ambient_entity_effect",
+			"chance": 0.01
+		}
+	}
+}

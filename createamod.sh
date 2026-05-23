@@ -68,6 +68,8 @@ create_new() {
     fi
 
     mkdir -p ./createamod/blocks
+    mkdir -p ./createamod/items
+    mkdir -p ./createamod/entities
 
     # Generate a starter main config
     mkdir -p createamod

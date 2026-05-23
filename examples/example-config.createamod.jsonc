@@ -9,6 +9,7 @@
 	"group": "com.example",
 	"files": {
 		"blocks": "blocks/*.createamod.json",
-		"items": "items/*.createamod.json"
+		"items": "items/*.createamod.json",
+		"entities":"entities/*.createamod.json"
 	}
 }

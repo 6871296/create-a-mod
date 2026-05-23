@@ -154,6 +154,7 @@ def load_blocks(main_config):
     base_dir = 'createamod'
     block_files = set()
     item_files = set()
+    entity_files = set()
 
     if isinstance(files_config, dict):
         for key, pattern in files_config.items():
@@ -165,6 +166,8 @@ def load_blocks(main_config):
                     continue
                 if key == 'items':
                     item_files.add(fp)
+                elif key == 'entities':
+                    entity_files.add(fp)
                 else:
                     block_files.add(fp)
     else:
@@ -176,11 +179,20 @@ def load_blocks(main_config):
                 fp = os.path.normpath(fp)
                 if os.path.basename(fp).lower() == 'config.createamod.json':
                     continue
-                block_files.add(fp)
+                path_parts = fp.replace('\\', '/').split('/')
+                if 'entities' in path_parts:
+                    entity_files.add(fp)
+                elif 'items' in path_parts:
+                    item_files.add(fp)
+                else:
+                    block_files.add(fp)
 
     own_blocks = []
     mixin_blocks = []
     own_items = []
+    mixin_items = []
+    own_entities = []
+    mixin_entities = []
 
     # Process block files
     for fp in sorted(block_files):
@@ -198,13 +210,24 @@ def load_blocks(main_config):
                 cfg['namespace'] = own_modid
                 block_id = raw_id
 
-            if not isinstance(files_config, dict) and is_item_config(cfg, fp):
-                if namespace == own_modid:
-                    own_items.append(cfg)
-                    print(f"Loaded own item: {fp} -> {block_id}")
-                else:
-                    print(f"Warning: item configs must use own modid, skipping {fp}")
-                continue
+            if not isinstance(files_config, dict):
+                path_parts = fp.replace('\\', '/').split('/')
+                if 'entities' in path_parts:
+                    if namespace == own_modid:
+                        own_entities.append(cfg)
+                        print(f"Loaded own entity: {fp} -> {block_id}")
+                    else:
+                        mixin_entities.append(cfg)
+                        print(f"Loaded mixin entity: {fp} -> {raw_id}")
+                    continue
+                if is_item_config(cfg, fp):
+                    if namespace == own_modid:
+                        own_items.append(cfg)
+                        print(f"Loaded own item: {fp} -> {block_id}")
+                    else:
+                        mixin_items.append(cfg)
+                        print(f"Loaded mixin item: {fp} -> {raw_id}")
+                    continue
 
             if namespace == own_modid:
                 own_blocks.append(cfg)
@@ -238,11 +261,37 @@ def load_blocks(main_config):
                 own_items.append(cfg)
                 print(f"Loaded own item: {fp} -> {item_id}")
             else:
-                print(f"Warning: item configs must use own modid, skipping {fp}")
+                mixin_items.append(cfg)
+                print(f"Loaded mixin item: {fp} -> {raw_id}")
         except Exception as e:
             print(f"Warning: failed to load {fp}: {e}")
 
-    return own_blocks, mixin_blocks, own_items
+    # Process entity files
+    for fp in sorted(entity_files):
+        try:
+            with open(fp, 'r', encoding='utf-8') as f:
+                cfg = json.load(f)
+
+            raw_id = cfg.get('id', '')
+            if ':' in raw_id:
+                namespace, entity_id = raw_id.split(':', 1)
+                cfg['namespace'] = namespace
+                cfg['id'] = entity_id
+            else:
+                namespace = own_modid
+                cfg['namespace'] = own_modid
+                entity_id = raw_id
+
+            if namespace == own_modid:
+                own_entities.append(cfg)
+                print(f"Loaded own entity: {fp} -> {entity_id}")
+            else:
+                mixin_entities.append(cfg)
+                print(f"Loaded mixin entity: {fp} -> {raw_id}")
+        except Exception as e:
+            print(f"Warning: failed to load {fp}: {e}")
+
+    return own_blocks, mixin_blocks, own_items, mixin_items, own_entities, mixin_entities
 
 
 def generate_mod_blocks(config):
@@ -521,6 +570,13 @@ def update_example_mod(config):
         else:
             content = content.replace('package ', f'{import_line_items}\n\npackage ', 1)
 
+    import_line_entities = f'import {group}.entity.ModEntities;'
+    if import_line_entities not in content:
+        if 'import ' in content:
+            content = content.replace('import ', f'{import_line_entities}\nimport ', 1)
+        else:
+            content = content.replace('package ', f'{import_line_entities}\n\npackage ', 1)
+
     register_call = 'ModBlocks.register();'
     if register_call not in content:
         if 'LOGGER.info' in content:
@@ -556,6 +612,24 @@ def update_example_mod(config):
             content = content.rstrip()
             if content.endswith('}'):
                 content = content[:-1] + f'        {register_call_items}\n    }}\n}}'
+
+    register_call_entities = 'ModEntities.register();'
+    if register_call_entities not in content:
+        if 'LOGGER.info' in content:
+            lines = content.split('\n')
+            new_lines = []
+            inserted = False
+            for i, line in enumerate(lines):
+                new_lines.append(line)
+                if not inserted and 'LOGGER.info' in line and i + 1 < len(lines):
+                    indent = '        '
+                    new_lines.append(f'{indent}{register_call_entities}')
+                    inserted = True
+            content = '\n'.join(new_lines)
+        else:
+            content = content.rstrip()
+            if content.endswith('}'):
+                content = content[:-1] + f'        {register_call_entities}\n    }}\n}}'
 
     with open(mod_file, 'w', encoding='utf-8') as f:
         f.write(content)
@@ -709,6 +783,23 @@ def generate_lang(config):
             if lang_code not in lang_data:
                 lang_data[lang_code] = {}
             lang_data[lang_code][key] = value
+
+    own_entities = config.get('own_entities', [])
+    for entity in own_entities:
+        entity_id = entity['id']
+        namespace = entity.get('namespace', config['modid'])
+        names = entity.get('name', {})
+        key = f'entity.{namespace}.{entity_id}'
+        for lang_code, value in names.items():
+            if lang_code not in lang_data:
+                lang_data[lang_code] = {}
+            lang_data[lang_code][key] = value
+        # Spawn egg name
+        egg_key = f'item.{namespace}.{entity_id}_spawn_egg'
+        for lang_code, value in names.items():
+            if lang_code not in lang_data:
+                lang_data[lang_code] = {}
+            lang_data[lang_code][egg_key] = f'{value} Spawn Egg' if lang_code == 'en_us' else f'{value}刷怪蛋'
 
     for lang_code, entries in lang_data.items():
         # For mixin blocks targeting minecraft namespace, place lang in our mod's assets
@@ -895,6 +986,1061 @@ def generate_mixins(config):
         if drops:
             print(f"  - {namespace}:{block_id} has custom drops that need Loot Table modification.")
     print("[End Mixin Hints]\n")
+
+
+def generate_item_mixins(config):
+    """Generate Mixin classes for mixin items to modify attributes of existing items.
+    Supports: max_stack, durability, rarity, enchantment_value
+    """
+    group = config['group']
+    mixin_items = config.get('mixin_items', [])
+
+    pkg_path = group.replace('.', '/')
+    mixin_dir = f'src/main/java/{pkg_path}/mixin'
+    os.makedirs(mixin_dir, exist_ok=True)
+
+    # (attribute_key, method_name, return_type, value_transform, target_class, skip_default)
+    ITEM_METHOD_MAP = [
+        ('max_stack', 'getMaxStackSize', 'Integer', lambda v: str(v), 'ItemStack', lambda v: v == 64),
+        ('durability', 'getMaxDamage', 'Integer', lambda v: str(v), 'ItemStack', lambda v: v == 0),
+        ('rarity', 'getRarity', 'Rarity', lambda v: f'Rarity.{v.upper()}', 'ItemStack', lambda v: v.lower() == 'common'),
+        ('enchantment_value', 'getEnchantmentValue', 'Integer', lambda v: str(v), 'Item', lambda v: v == 0),
+    ]
+
+    # Collect modifications per item, grouped by target class
+    itemstack_modifications = []
+    item_modifications = []
+
+    for item in mixin_items:
+        attrs = item.get('attributes', {})
+        itemstack_mods = []
+        item_mods = []
+        for attr_key, method_name, return_type, transform, target_class, skip_default in ITEM_METHOD_MAP:
+            if attr_key not in attrs:
+                continue
+            value = attrs[attr_key]
+            if skip_default(value):
+                continue
+            java_value = transform(value)
+            if target_class == 'ItemStack':
+                itemstack_mods.append((method_name, return_type, java_value))
+            else:
+                item_mods.append((method_name, return_type, java_value))
+        if itemstack_mods:
+            itemstack_modifications.append((item, itemstack_mods))
+        if item_mods:
+            item_modifications.append((item, item_mods))
+
+    # Generate ItemStackMixin
+    if itemstack_modifications:
+        class_name = 'ItemStackMixin'
+        lines = [
+            f'package {group}.mixin;',
+            '',
+            'import net.minecraft.core.registries.BuiltInRegistries;',
+            'import net.minecraft.resources.ResourceLocation;',
+            'import net.minecraft.world.item.Item;',
+            'import net.minecraft.world.item.ItemStack;',
+            'import net.minecraft.world.item.Rarity;',
+            'import org.spongepowered.asm.mixin.Mixin;',
+            'import org.spongepowered.asm.mixin.Shadow;',
+            'import org.spongepowered.asm.mixin.injection.At;',
+            'import org.spongepowered.asm.mixin.injection.Inject;',
+            'import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;',
+            '',
+            '@Mixin(ItemStack.class)',
+            f'public abstract class {class_name} {{',
+            '',
+            '    @Shadow',
+            '    public abstract Item getItem();',
+            ''
+        ]
+
+        generated_methods = set()
+        for item, mods in itemstack_modifications:
+            item_id = item['id']
+            namespace = item.get('namespace', 'minecraft')
+            item_key = f'{namespace}:{item_id}'
+
+            for method_name, return_type, java_value in mods:
+                method_key = f'{method_name}_{item_key}'
+                if method_key in generated_methods:
+                    continue
+                generated_methods.add(method_key)
+
+                inject_method_name = f'on{method_name[0].upper()}{method_name[1:]}_{namespace}_{item_id}'.replace('-', '_').replace('.', '_')
+                cir_type = f'CallbackInfoReturnable<{return_type}>'
+
+                lines.append(f'    @Inject(method = "{method_name}", at = @At("HEAD"), cancellable = true)')
+                lines.append(f'    private void {inject_method_name}({cir_type} cir) {{')
+                lines.append(f'        if (this.getItem() == BuiltInRegistries.ITEM.get(new ResourceLocation("{namespace}", "{item_id}"))) {{')
+                lines.append(f'            cir.setReturnValue({java_value});')
+                lines.append('            return;')
+                lines.append('        }')
+                lines.append('    }')
+                lines.append('')
+
+        lines.append('}')
+
+        path = f'{mixin_dir}/{class_name}.java'
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(lines))
+        print(f"Generated: {path}")
+    else:
+        # Clean up old ItemStackMixin if no longer needed
+        old_path = f'{mixin_dir}/ItemStackMixin.java'
+        if os.path.exists(old_path):
+            os.remove(old_path)
+            print(f"Removed old: {old_path}")
+
+    # Generate ItemMixin
+    if item_modifications:
+        class_name = 'ItemMixin'
+        lines = [
+            f'package {group}.mixin;',
+            '',
+            'import net.minecraft.core.registries.BuiltInRegistries;',
+            'import net.minecraft.resources.ResourceLocation;',
+            'import net.minecraft.world.item.Item;',
+            'import org.spongepowered.asm.mixin.Mixin;',
+            'import org.spongepowered.asm.mixin.injection.At;',
+            'import org.spongepowered.asm.mixin.injection.Inject;',
+            'import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;',
+            '',
+            '@Mixin(Item.class)',
+            f'public class {class_name} {{',
+            ''
+        ]
+
+        generated_methods = set()
+        for item, mods in item_modifications:
+            item_id = item['id']
+            namespace = item.get('namespace', 'minecraft')
+            item_key = f'{namespace}:{item_id}'
+
+            for method_name, return_type, java_value in mods:
+                method_key = f'{method_name}_{item_key}'
+                if method_key in generated_methods:
+                    continue
+                generated_methods.add(method_key)
+
+                inject_method_name = f'on{method_name[0].upper()}{method_name[1:]}_{namespace}_{item_id}'.replace('-', '_').replace('.', '_')
+                cir_type = f'CallbackInfoReturnable<{return_type}>'
+
+                lines.append(f'    @Inject(method = "{method_name}", at = @At("HEAD"), cancellable = true)')
+                lines.append(f'    private void {inject_method_name}({cir_type} cir) {{')
+                lines.append(f'        if ((Item)(Object)this == BuiltInRegistries.ITEM.get(new ResourceLocation("{namespace}", "{item_id}"))) {{')
+                lines.append(f'            cir.setReturnValue({java_value});')
+                lines.append('            return;')
+                lines.append('        }')
+                lines.append('    }')
+                lines.append('')
+
+        lines.append('}')
+
+        path = f'{mixin_dir}/{class_name}.java'
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(lines))
+        print(f"Generated: {path}")
+    else:
+        # Clean up old ItemMixin if no longer needed
+        old_path = f'{mixin_dir}/ItemMixin.java'
+        if os.path.exists(old_path):
+            os.remove(old_path)
+            print(f"Removed old: {old_path}")
+
+    # Register item mixins in modid.mixins.json
+    mixins_json = f'src/main/resources/{config["modid"]}.mixins.json'
+    if os.path.exists(mixins_json):
+        with open(mixins_json, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        mixin_entries = data.get('mixins', [])
+        has_itemstack = itemstack_modifications
+        has_item = item_modifications
+
+        if has_itemstack and 'ItemStackMixin' not in mixin_entries and f'{group}.mixin.ItemStackMixin' not in mixin_entries:
+            mixin_entries.append('ItemStackMixin')
+        if not has_itemstack and 'ItemStackMixin' in mixin_entries:
+            mixin_entries.remove('ItemStackMixin')
+        if has_item and 'ItemMixin' not in mixin_entries and f'{group}.mixin.ItemMixin' not in mixin_entries:
+            mixin_entries.append('ItemMixin')
+        if not has_item and 'ItemMixin' in mixin_entries:
+            mixin_entries.remove('ItemMixin')
+
+        data['mixins'] = mixin_entries
+        with open(mixins_json, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+        print(f"Updated: {mixins_json}")
+
+    # Print hints for unsupported attributes
+    print("\n[Mixin Items - Auto & Manual Attributes]")
+    auto_attrs = {m[0] for m in ITEM_METHOD_MAP}
+    for item in mixin_items:
+        item_id = item['id']
+        namespace = item.get('namespace', 'minecraft')
+        attrs = item.get('attributes', {})
+        unsupported = []
+        for key, value in attrs.items():
+            if key in auto_attrs:
+                continue
+            if value and value != 0 and value != 64 and value != False:
+                if key != 'rarity' or (isinstance(value, str) and value.lower() != 'common'):
+                    unsupported.append(f"{key} = {value}")
+        if unsupported:
+            print(f"  - {namespace}:{item_id} needs manual Mixin for:")
+            for u in unsupported:
+                print(f"      {u}")
+        food = item.get('food')
+        if food:
+            print(f"  - {namespace}:{item_id} has custom food that requires manual Mixin.")
+    print("[End Mixin Item Hints]\n")
+
+
+def generate_entities(config):
+    """Generate entity classes, ModEntities.java, client renderers, and copy textures."""
+    import shutil
+    import re
+    modid = config['modid']
+    group = config['group']
+    entities = config.get('own_entities', [])
+
+    pkg_path = group.replace('.', '/')
+    entity_dir = f'src/main/java/{pkg_path}/entity'
+    os.makedirs(entity_dir, exist_ok=True)
+
+    if not entities:
+        # Clean up all entity Java files
+        if os.path.exists(entity_dir):
+            for fname in os.listdir(entity_dir):
+                if fname.endswith('.java'):
+                    old_path = os.path.join(entity_dir, fname)
+                    os.remove(old_path)
+                    print(f"Removed old: {old_path}")
+            # Remove empty entity dir
+            try:
+                os.rmdir(entity_dir)
+                print(f"Removed empty dir: {entity_dir}")
+            except OSError:
+                pass
+        # Clean up client renderer registrations
+        client_mod_file = f'src/client/java/{pkg_path}/client/ExampleModClient.java'
+        if os.path.exists(client_mod_file):
+            with open(client_mod_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+            # Remove EntityRendererRegistry.register lines and associated blocks
+            import re
+            # Remove renderer register blocks: EntityRendererRegistry.register(ModEntities.XXX, context -> ...);
+            content = re.sub(
+                r'\s+EntityRendererRegistry\.register\(ModEntities\.\w+,\s*context\s*->\s*new MobRenderer<[^>]+>\(context,\s*new CowModel<>\(context\.bakeLayer\(ModelLayers\.COW\)\),\s*0\.5f\)\s*\{\s*@Override\s*public ResourceLocation getTextureLocation\([^)]+\)\s*\{\s*return new ResourceLocation\("[^"]+",\s*"textures/entity/[^"]+"\);\s*\}\s*\}\s*\);',
+                '',
+                content,
+                flags=re.DOTALL
+            )
+            # Also remove simpler form without the inline class
+            content = re.sub(
+                r'\s+EntityRendererRegistry\.register\(ModEntities\.\w+,\s*[^;]+\);',
+                '',
+                content,
+                flags=re.DOTALL
+            )
+            # Remove unused imports if no renderer left
+            if 'EntityRendererRegistry' not in content:
+                content = re.sub(r'import net\.fabricmc\.fabric\.api\.client\.rendering\.v1\.EntityRendererRegistry;\n', '', content)
+                content = re.sub(r'import net\.minecraft\.client\.model\.CowModel;\n', '', content)
+                content = re.sub(r'import net\.minecraft\.client\.model\.EntityModel;\n', '', content)
+                content = re.sub(r'import net\.minecraft\.client\.model\.geom\.ModelLayers;\n', '', content)
+                content = re.sub(r'import net\.minecraft\.client\.renderer\.entity\.MobRenderer;\n', '', content)
+                content = re.sub(r'import net\.minecraft\.resources\.ResourceLocation;\n', '', content)
+            # Remove ModEntities import if no longer used
+            if 'ModEntities.' not in content:
+                content = re.sub(rf'import {re.escape(group)}\.entity\.ModEntities;\n', '', content)
+            with open(client_mod_file, 'w', encoding='utf-8') as f:
+                f.write(content)
+            print(f"Cleaned renderers: {client_mod_file}")
+        # Remove ModEntities import from ExampleMod.java
+        mod_file = f'src/main/java/{pkg_path}/ExampleMod.java'
+        if os.path.exists(mod_file):
+            with open(mod_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+            content = re.sub(rf'import {re.escape(group)}\.entity\.ModEntities;\n', '', content)
+            content = re.sub(r'\s+ModEntities\.register\(\);', '', content)
+            with open(mod_file, 'w', encoding='utf-8') as f:
+                f.write(content)
+            print(f"Cleaned ModEntities: {mod_file}")
+        return
+
+    BASE_CATEGORY = {
+        'mob': 'MISC',
+        'animal': 'CREATURE',
+        'monster': 'MONSTER',
+        'water_animal': 'WATER_CREATURE',
+        'ambient': 'AMBIENT',
+        'flying': 'CREATURE',
+    }
+
+    BASE_CLASS = {
+        'mob': ('Mob', 'net.minecraft.world.entity.Mob'),
+        'animal': ('Animal', 'net.minecraft.world.entity.animal.Animal'),
+        'monster': ('Monster', 'net.minecraft.world.entity.monster.Monster'),
+        'water_animal': ('WaterAnimal', 'net.minecraft.world.entity.animal.WaterAnimal'),
+        'ambient': ('AmbientCreature', 'net.minecraft.world.entity.ambient.AmbientCreature'),
+        'flying': ('FlyingMob', 'net.minecraft.world.entity.FlyingMob'),
+    }
+
+    # Generate individual entity classes
+    for entity in entities:
+        entity_id = entity['id']
+        class_name = pascal_case(entity_id)
+        attrs = entity.get('attributes', {})
+        hitbox = entity.get('hitbox', {})
+        base = entity.get('base', 'mob').lower()
+
+        health = attrs.get('health', 20)
+        speed = attrs.get('movement_speed', 0.25)
+        damage = attrs.get('attack_damage', 3)
+        follow_range = attrs.get('follow_range', 16)
+
+        width = hitbox.get('width', 0.6)
+        height = hitbox.get('height', 1.8)
+
+        parent_info = BASE_CLASS.get(base, ('Mob', 'net.minecraft.world.entity.Mob'))
+        parent_class = parent_info[0]
+        parent_import = parent_info[1]
+
+        ai = entity.get('ai', {})
+        goals = ai.get('goals', [])
+        targets = ai.get('targets', [])
+
+        # Collect imports for AI goals
+        goal_imports = set()
+        goal_lines = []
+        target_lines = []
+
+        GOAL_MAP = {
+            'swim': ('FloatGoal', 'this'),
+            'panic': ('PanicGoal', 'this, {speed}'),
+            'wander': ('RandomStrollGoal', 'this, {speed}'),
+            'water_avoiding_wander': ('WaterAvoidingRandomStrollGoal', 'this, {speed}'),
+            'look_at_player': ('LookAtPlayerGoal', 'this, {entity_class}.class, {distance}f'),
+            'look_at_entity': ('LookAtPlayerGoal', 'this, {entity_class}.class, {distance}f'),
+            'look_randomly': ('RandomLookAroundGoal', 'this'),
+            'attack_melee': ('MeleeAttackGoal', 'this, {speed}, {follow}'),
+            'breed': ('BreedGoal', 'this, {speed}'),
+            'follow_parent': ('FollowParentGoal', 'this, {speed}'),
+            'tempt': ('TemptGoal', 'this, {speed}, {ingredient}, {can_scare}'),
+            'float': ('FloatGoal', 'this'),
+            'jump_when_chased': ('PanicGoal', 'this, {speed}'),
+            'avoid_entity': ('AvoidEntityGoal', 'this, {entity_class}.class, {distance}, {far_speed}, {near_speed}'),
+        }
+
+        TARGET_MAP = {
+            'nearest_attackable': ('NearestAttackableTargetGoal', 'this, {target_class}.class, {check_visibility}'),
+            'hurt_by_target': ('HurtByTargetGoal', 'this'),
+        }
+
+        for goal in goals:
+            gtype = goal.get('type', '')
+            priority = goal.get('priority', 0)
+            info = GOAL_MAP.get(gtype)
+            if not info:
+                continue
+            cls_name, template = info
+            if cls_name in ('FloatGoal', 'PanicGoal', 'RandomStrollGoal', 'WaterAvoidingRandomStrollGoal',
+                            'LookAtPlayerGoal', 'MeleeAttackGoal', 'BreedGoal', 'FollowParentGoal',
+                            'TemptGoal', 'AvoidEntityGoal'):
+                goal_imports.add(f'net.minecraft.world.entity.ai.goal.{cls_name}')
+            params = template
+            if '{speed}' in params:
+                params = params.replace('{speed}', str(goal.get('speed', speed)))
+            if '{distance}' in params:
+                params = params.replace('{distance}', str(goal.get('distance', 6.0)))
+            if '{follow}' in params:
+                params = params.replace('{follow}', 'true' if goal.get('follow_even_if_not_seen', False) else 'false')
+            if '{entity_class}' in params:
+                entity_cls = goal.get('entity_class', 'Player')
+                params = params.replace('{entity_class}', entity_cls)
+                if entity_cls == 'Player':
+                    goal_imports.add('net.minecraft.world.entity.player.Player')
+            if '{ingredient}' in params:
+                ingredient = goal.get('ingredient', '')
+                if ingredient:
+                    ns, name = ingredient.split(':', 1) if ':' in ingredient else ('minecraft', ingredient)
+                    params = params.replace('{ingredient}', f'Ingredient.of(Items.{name.upper()})')
+                    goal_imports.add('net.minecraft.world.item.crafting.Ingredient')
+                    goal_imports.add('net.minecraft.world.item.Items')
+                else:
+                    params = params.replace('{ingredient}', 'Ingredient.EMPTY')
+                    goal_imports.add('net.minecraft.world.item.crafting.Ingredient')
+            if '{can_scare}' in params:
+                params = params.replace('{can_scare}', 'true' if goal.get('can_scare_by_player_movement', False) else 'false')
+            if '{far_speed}' in params:
+                far_speed = goal.get('far_speed', speed * 1.5)
+                near_speed = goal.get('near_speed', speed * 1.0)
+                params = params.replace('{far_speed}', str(far_speed)).replace('{near_speed}', str(near_speed))
+
+            goal_lines.append(f'        this.goalSelector.addGoal({priority}, new {cls_name}({params}));')
+
+        for target in targets:
+            ttype = target.get('type', '')
+            priority = target.get('priority', 0)
+            info = TARGET_MAP.get(ttype)
+            if not info:
+                continue
+            cls_name, template = info
+            if cls_name in ('NearestAttackableTargetGoal', 'HurtByTargetGoal'):
+                goal_imports.add(f'net.minecraft.world.entity.ai.goal.target.{cls_name}')
+            params = template
+            if '{target_class}' in params:
+                target_cls = target.get('target_class', 'Player')
+                params = params.replace('{target_class}', target_cls)
+                if target_cls == 'Player':
+                    goal_imports.add('net.minecraft.world.entity.player.Player')
+            if '{check_visibility}' in params:
+                params = params.replace('{check_visibility}', 'true' if target.get('check_visibility', True) else 'false')
+
+            if cls_name == 'NearestAttackableTargetGoal':
+                target_lines.append(f'        this.targetSelector.addGoal({priority}, new {cls_name}<>({params}));')
+            else:
+                target_lines.append(f'        this.targetSelector.addGoal({priority}, new {cls_name}({params}));')
+
+        lines = [
+            f'package {group}.entity;',
+            '',
+            'import net.minecraft.world.entity.EntityType;',
+            f'import {parent_import};',
+        ]
+        for imp in sorted(goal_imports):
+            lines.append(f'import {imp};')
+        lines.extend([
+            'import net.minecraft.world.entity.ai.attributes.AttributeSupplier;',
+            'import net.minecraft.world.entity.ai.attributes.Attributes;',
+            'import net.minecraft.world.level.Level;',
+            '',
+            f'public class {class_name} extends {parent_class} {{',
+            '',
+            f'    public {class_name}(EntityType<{class_name}> entityType, Level level) {{',
+            '        super(entityType, level);',
+            '    }',
+            '',
+            '    @Override',
+            '    protected void registerGoals() {',
+            '        super.registerGoals();',
+        ])
+        if goal_lines:
+            lines.extend(goal_lines)
+        else:
+            lines.append('        // No goals configured')
+        if target_lines:
+            lines.extend(target_lines)
+        lines.append('    }')
+        lines.append('')
+        lines.append('    public static AttributeSupplier.Builder createAttributes() {')
+        if parent_class == 'Mob':
+            lines.append('        return Mob.createMobAttributes()')
+        elif parent_class == 'Animal':
+            lines.append('        return Animal.createMobAttributes()')
+        elif parent_class == 'Monster':
+            lines.append('        return Monster.createMonsterAttributes()')
+        elif parent_class == 'WaterAnimal':
+            lines.append('        return WaterAnimal.createMobAttributes()')
+        elif parent_class == 'AmbientCreature':
+            lines.append('        return AmbientCreature.createMobAttributes()')
+        elif parent_class == 'FlyingMob':
+            lines.append('        return FlyingMob.createMobAttributes()')
+        else:
+            lines.append('        return Mob.createMobAttributes()')
+
+        lines.append(f'            .add(Attributes.MAX_HEALTH, {health})')
+        lines.append(f'            .add(Attributes.MOVEMENT_SPEED, {speed})')
+        if damage != 0:
+            lines.append(f'            .add(Attributes.ATTACK_DAMAGE, {damage})')
+        lines.append(f'            .add(Attributes.FOLLOW_RANGE, {follow_range});')
+        lines.append('    }')
+
+        # Traits
+        traits = entity.get('traits', {})
+        trait_methods = []
+        trait_imports = set()
+
+        if traits.get('fire_immune'):
+            trait_methods.extend([
+                '',
+                '    @Override',
+                '    public boolean fireImmune() {',
+                '        return true;',
+                '    }',
+            ])
+
+        if traits.get('immune_to_fall'):
+            trait_imports.add('net.minecraft.world.damagesource.DamageSource')
+            trait_methods.extend([
+                '',
+                '    @Override',
+                '    public boolean causeFallDamage(float f, float g, DamageSource damageSource) {',
+                '        return false;',
+                '    }',
+            ])
+
+        if traits.get('immune_to_drowning'):
+            trait_methods.extend([
+                '',
+                '    @Override',
+                '    protected int decreaseAirSupply(int i) {',
+                '        return i;',
+                '    }',
+            ])
+
+        if traits.get('immune_to_suffocation'):
+            trait_methods.extend([
+                '',
+                '    @Override',
+                '    public boolean isInWall() {',
+                '        return false;',
+                '    }',
+            ])
+
+        if traits.get('is_pushed_by_fluids') is False:
+            trait_methods.extend([
+                '',
+                '    @Override',
+                '    public boolean isPushedByFluid() {',
+                '        return false;',
+                '    }',
+            ])
+
+        if traits.get('can_be_leashed'):
+            trait_imports.add('net.minecraft.world.entity.player.Player')
+            trait_methods.extend([
+                '',
+                '    @Override',
+                '    public boolean canBeLeashed(Player player) {',
+                '        return true;',
+                '    }',
+            ])
+
+        if traits.get('persistent'):
+            trait_methods.extend([
+                '',
+                '    @Override',
+                '    public boolean requiresCustomPersistence() {',
+                '        return true;',
+                '    }',
+            ])
+
+        # Sounds
+        sounds = entity.get('sounds', {})
+        sound_methods = []
+        sound_imports = set()
+
+        if sounds.get('ambient'):
+            sound_imports.add('net.minecraft.sounds.SoundEvent')
+            sound_imports.add('net.minecraft.core.registries.BuiltInRegistries')
+            sound_imports.add('net.minecraft.resources.ResourceLocation')
+            ambient = sounds['ambient']
+            ns, name = ambient.split(':', 1) if ':' in ambient else ('minecraft', ambient)
+            sound_methods.extend([
+                '',
+                '    @Override',
+                '    protected SoundEvent getAmbientSound() {',
+                f'        return BuiltInRegistries.SOUND_EVENT.get(new ResourceLocation("{ns}", "{name}"));',
+                '    }',
+            ])
+
+        if sounds.get('hurt'):
+            sound_imports.add('net.minecraft.sounds.SoundEvent')
+            sound_imports.add('net.minecraft.world.damagesource.DamageSource')
+            sound_imports.add('net.minecraft.core.registries.BuiltInRegistries')
+            sound_imports.add('net.minecraft.resources.ResourceLocation')
+            hurt = sounds['hurt']
+            ns, name = hurt.split(':', 1) if ':' in hurt else ('minecraft', hurt)
+            sound_methods.extend([
+                '',
+                '    @Override',
+                '    protected SoundEvent getHurtSound(DamageSource damageSource) {',
+                f'        return BuiltInRegistries.SOUND_EVENT.get(new ResourceLocation("{ns}", "{name}"));',
+                '    }',
+            ])
+
+        if sounds.get('death'):
+            sound_imports.add('net.minecraft.sounds.SoundEvent')
+            sound_imports.add('net.minecraft.core.registries.BuiltInRegistries')
+            sound_imports.add('net.minecraft.resources.ResourceLocation')
+            death = sounds['death']
+            ns, name = death.split(':', 1) if ':' in death else ('minecraft', death)
+            sound_methods.extend([
+                '',
+                '    @Override',
+                '    protected SoundEvent getDeathSound() {',
+                f'        return BuiltInRegistries.SOUND_EVENT.get(new ResourceLocation("{ns}", "{name}"));',
+                '    }',
+            ])
+
+        if sounds.get('step'):
+            sound_imports.add('net.minecraft.sounds.SoundEvent')
+            sound_imports.add('net.minecraft.core.registries.BuiltInRegistries')
+            sound_imports.add('net.minecraft.resources.ResourceLocation')
+            sound_imports.add('net.minecraft.core.BlockPos')
+            sound_imports.add('net.minecraft.world.level.block.state.BlockState')
+            step = sounds['step']
+            ns, name = step.split(':', 1) if ':' in step else ('minecraft', step)
+            sound_methods.extend([
+                '',
+                '    @Override',
+                '    protected void playStepSound(BlockPos blockPos, BlockState blockState) {',
+                f'        this.playSound(BuiltInRegistries.SOUND_EVENT.get(new ResourceLocation("{ns}", "{name}")), 0.15F, 1.0F);',
+                '    }',
+            ])
+
+        # can_pick_up_loot: set in constructor
+        constructor_extra = []
+        if traits.get('can_pick_up_loot'):
+            constructor_extra.append('        this.setCanPickUpLoot(true);')
+
+        # Rebuild lines with imports, constructor, and all methods
+        all_imports = set(goal_imports) | trait_imports | sound_imports
+        lines = [
+            f'package {group}.entity;',
+            '',
+            'import net.minecraft.world.entity.EntityType;',
+            f'import {parent_import};',
+        ]
+        for imp in sorted(all_imports):
+            lines.append(f'import {imp};')
+        lines.extend([
+            'import net.minecraft.world.entity.ai.attributes.AttributeSupplier;',
+            'import net.minecraft.world.entity.ai.attributes.Attributes;',
+            'import net.minecraft.world.level.Level;',
+            '',
+            f'public class {class_name} extends {parent_class} {{',
+            '',
+            f'    public {class_name}(EntityType<{class_name}> entityType, Level level) {{',
+            '        super(entityType, level);',
+        ])
+        if constructor_extra:
+            lines.extend(constructor_extra)
+        lines.extend([
+            '    }',
+            '',
+            '    @Override',
+            '    protected void registerGoals() {',
+            '        super.registerGoals();',
+        ])
+        if goal_lines:
+            lines.extend(goal_lines)
+        else:
+            lines.append('        // No goals configured')
+        if target_lines:
+            lines.extend(target_lines)
+        lines.append('    }')
+        lines.append('')
+        lines.append('    public static AttributeSupplier.Builder createAttributes() {')
+        if parent_class == 'Mob':
+            lines.append('        return Mob.createMobAttributes()')
+        elif parent_class == 'Animal':
+            lines.append('        return Animal.createMobAttributes()')
+        elif parent_class == 'Monster':
+            lines.append('        return Monster.createMonsterAttributes()')
+        elif parent_class == 'WaterAnimal':
+            lines.append('        return WaterAnimal.createMobAttributes()')
+        elif parent_class == 'AmbientCreature':
+            lines.append('        return AmbientCreature.createMobAttributes()')
+        elif parent_class == 'FlyingMob':
+            lines.append('        return FlyingMob.createMobAttributes()')
+        else:
+            lines.append('        return Mob.createMobAttributes()')
+
+        lines.append(f'            .add(Attributes.MAX_HEALTH, {health})')
+        lines.append(f'            .add(Attributes.MOVEMENT_SPEED, {speed})')
+        if damage != 0:
+            lines.append(f'            .add(Attributes.ATTACK_DAMAGE, {damage})')
+        lines.append(f'            .add(Attributes.FOLLOW_RANGE, {follow_range});')
+        lines.append('    }')
+
+        # Animal is abstract and requires getBreedOffspring and isFood
+        breeding = entity.get('breeding', {})
+        breeding_foods = breeding.get('food', [])
+
+        if parent_class == 'Animal':
+            lines.extend([
+                '',
+                '    @Override',
+                '    @SuppressWarnings("unchecked")',
+                '    public net.minecraft.world.entity.AgeableMob getBreedOffspring(net.minecraft.server.level.ServerLevel serverLevel, net.minecraft.world.entity.AgeableMob ageableMob) {',
+                f'        return new {class_name}((EntityType<{class_name}>) this.getType(), this.level());',
+                '    }',
+                '',
+                '    @Override',
+                '    public boolean isFood(net.minecraft.world.item.ItemStack itemStack) {',
+            ])
+            if breeding_foods:
+                food_checks = []
+                for food in breeding_foods:
+                    ns, name = food.split(':', 1) if ':' in food else ('minecraft', food)
+                    food_checks.append(f'itemStack.is(net.minecraft.core.registries.BuiltInRegistries.ITEM.get(new net.minecraft.resources.ResourceLocation("{ns}", "{name}")))')
+                lines.append(f'        return {" || ".join(food_checks)};')
+            else:
+                lines.append('        return false;')
+            lines.extend([
+                '    }',
+            ])
+
+        # Drops
+        drops = entity.get('drops', [])
+        drop_methods = []
+        drop_imports = set()
+        if drops:
+            drop_imports.add('net.minecraft.world.damagesource.DamageSource')
+            drop_imports.add('net.minecraft.world.item.ItemStack')
+            drop_imports.add('net.minecraft.core.registries.BuiltInRegistries')
+            drop_imports.add('net.minecraft.resources.ResourceLocation')
+            drop_lines = [
+                '',
+                '    @Override',
+                '    protected void dropCustomDeathLoot(DamageSource damageSource, int lootingLevel, boolean hitByPlayer) {',
+                '        super.dropCustomDeathLoot(damageSource, lootingLevel, hitByPlayer);',
+            ]
+            for drop in drops:
+                drop_id = drop.get('id', '')
+                if not drop_id:
+                    continue
+                ns, name = drop_id.split(':', 1) if ':' in drop_id else ('minecraft', drop_id)
+                count = drop.get('count', 1)
+                looting_bonus = drop.get('looting_bonus', 0)
+                chance = drop.get('chance', 1.0)
+
+                if isinstance(count, dict):
+                    min_count = count.get('min', 0)
+                    max_count = count.get('max', 1)
+                    if min_count == 0:
+                        count_expr = f'this.random.nextInt({max_count - min_count + 1})'
+                    else:
+                        count_expr = f'this.random.nextInt({max_count - min_count + 1}) + {min_count}'
+                else:
+                    count_expr = str(int(count))
+
+                if looting_bonus > 0:
+                    count_expr = f'{count_expr} + this.random.nextInt(lootingLevel * {looting_bonus} + 1)'
+
+                if chance < 1.0:
+                    drop_lines.append(f'        if (this.random.nextFloat() < {chance}f) {{')
+                    indent = '            '
+                else:
+                    indent = '        '
+
+                drop_lines.append(f'{indent}this.spawnAtLocation(new ItemStack(BuiltInRegistries.ITEM.get(new ResourceLocation("{ns}", "{name}")), {count_expr}));')
+
+                if chance < 1.0:
+                    drop_lines.append('        }')
+
+            drop_lines.append('    }')
+            drop_methods.extend(drop_lines)
+
+        # Particles
+        particles = entity.get('particles', {})
+        particle_methods = []
+        particle_imports = set()
+        if particles.get('ambient'):
+            ambient_particle = particles['ambient']
+            ptype = ambient_particle.get('type', '')
+            pchance = ambient_particle.get('chance', 0.01)
+            if ptype:
+                particle_imports.add('net.minecraft.server.level.ServerLevel')
+                particle_imports.add('net.minecraft.core.registries.BuiltInRegistries')
+                particle_imports.add('net.minecraft.resources.ResourceLocation')
+                particle_imports.add('net.minecraft.core.particles.ParticleOptions')
+                ns, name = ptype.split(':', 1) if ':' in ptype else ('minecraft', ptype)
+                particle_methods.extend([
+                    '',
+                    '    @Override',
+                    '    public void tick() {',
+                    '        super.tick();',
+                    f'        if (!this.level().isClientSide() && this.random.nextFloat() < {pchance}f) {{',
+                    f'            ((ServerLevel) this.level()).sendParticles((ParticleOptions) BuiltInRegistries.PARTICLE_TYPE.get(new ResourceLocation("{ns}", "{name}")),',
+                    '                this.getX(), this.getY() + this.getBbHeight() / 2.0, this.getZ(),',
+                    '                1, 0.2, 0.2, 0.2, 0.0);',
+                    '        }',
+                    '    }',
+                ])
+
+        # Merge all extra imports
+        all_imports = set(goal_imports) | trait_imports | sound_imports | drop_imports | particle_imports
+        # Rebuild import section in lines
+        import_section = [
+            f'package {group}.entity;',
+            '',
+            'import net.minecraft.world.entity.EntityType;',
+            f'import {parent_import};',
+        ]
+        for imp in sorted(all_imports):
+            import_section.append(f'import {imp};')
+        import_section.extend([
+            'import net.minecraft.world.entity.ai.attributes.AttributeSupplier;',
+            'import net.minecraft.world.entity.ai.attributes.Attributes;',
+            'import net.minecraft.world.level.Level;',
+            '',
+        ])
+        # Replace the import section in lines (first N lines)
+        # Find where the class declaration starts
+        class_decl_idx = None
+        for i, line in enumerate(lines):
+            if line.startswith(f'public class {class_name}'):
+                class_decl_idx = i
+                break
+        if class_decl_idx is not None:
+            lines = import_section + lines[class_decl_idx:]
+
+        if trait_methods:
+            lines.extend(trait_methods)
+        if sound_methods:
+            lines.extend(sound_methods)
+        if drop_methods:
+            lines.extend(drop_methods)
+        # Taming stub
+        taming = entity.get('taming', {})
+        if taming.get('enabled'):
+            lines.extend([
+                '',
+                '    // TODO: Taming logic - override mobInteract() to handle taming item usage',
+                f'    // Taming item: {taming.get("item", "")}, chance: {taming.get("tame_chance", 0.33)}',
+            ])
+
+        # Rideable stub
+        rideable = entity.get('rideable', {})
+        if rideable.get('enabled'):
+            lines.extend([
+                '',
+                '    // TODO: Rideable logic - override getControllingPassenger(), travel(), canBeControlledByRider()',
+                f'    // Saddle required: {rideable.get("saddle_required", False)}, can control: {rideable.get("can_control", True)}, ridden speed: {rideable.get("ridden_speed", 0.35)}',
+            ])
+
+        if particle_methods:
+            lines.extend(particle_methods)
+
+        lines.append('')
+        lines.append('}')
+
+        path = os.path.join(entity_dir, f'{class_name}.java')
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(lines))
+        print(f"Generated: {path}")
+
+    # Generate ModEntities.java
+    mod_lines = [
+        f'package {group}.entity;',
+        '',
+        'import net.fabricmc.fabric.api.biome.v1.BiomeModifications;',
+        'import net.fabricmc.fabric.api.biome.v1.BiomeSelectors;',
+        'import net.fabricmc.fabric.api.object.builder.v1.entity.FabricDefaultAttributeRegistry;',
+        'import net.minecraft.core.Registry;',
+        'import net.minecraft.core.registries.BuiltInRegistries;',
+        'import net.minecraft.core.registries.Registries;',
+        'import net.minecraft.resources.ResourceKey;',
+        'import net.minecraft.resources.ResourceLocation;',
+        'import net.minecraft.world.entity.EntityType;',
+        'import net.minecraft.world.entity.MobCategory;',
+        'import net.minecraft.world.item.Item;',
+        'import net.minecraft.world.item.SpawnEggItem;',
+    ]
+
+    # Check if any entity uses biome tags
+    has_biome_tags = any(
+        any(b.startswith('#') for b in e.get('spawn', {}).get('biomes', []))
+        for e in entities
+    )
+    if has_biome_tags:
+        mod_lines.append('import net.minecraft.tags.TagKey;')
+
+    mod_lines.extend([
+        '',
+        'public class ModEntities {',
+        ''
+    ])
+
+    for entity in entities:
+        class_name = pascal_case(entity['id'])
+        field_name = const_case(entity['id'])
+        mod_lines.append(f'    public static EntityType<{class_name}> {field_name};')
+        mod_lines.append(f'    public static Item {field_name}_SPAWN_EGG;')
+
+    mod_lines.append('')
+    mod_lines.append('    public static void register() {')
+
+    for entity in entities:
+        entity_id = entity['id']
+        class_name = pascal_case(entity_id)
+        field_name = const_case(entity_id)
+        base = entity.get('base', 'mob')
+        category = BASE_CATEGORY.get(base.lower(), 'MISC')
+        hitbox = entity.get('hitbox', {})
+        width = hitbox.get('width', 0.6)
+        height = hitbox.get('height', 1.8)
+
+        mod_lines.append(f'        {field_name} = Registry.register(')
+        mod_lines.append('            BuiltInRegistries.ENTITY_TYPE,')
+        mod_lines.append(f'            new ResourceLocation("{modid}", "{entity_id}"),')
+        mod_lines.append(f'            EntityType.Builder.of({class_name}::new, MobCategory.{category})')
+        mod_lines.append(f'                .sized({width}f, {height}f)')
+        mod_lines.append('                .build()')
+        mod_lines.append('        );')
+        mod_lines.append('')
+        mod_lines.append(f'        FabricDefaultAttributeRegistry.register({field_name}, {class_name}.createAttributes());')
+        mod_lines.append('')
+
+        spawn = entity.get('spawn', {})
+        color1 = spawn.get('egg_color1', 0xA0522D)
+        color2 = spawn.get('egg_color2', 0xFFFFFF)
+        mod_lines.append(f'        {field_name}_SPAWN_EGG = Registry.register(')
+        mod_lines.append('            BuiltInRegistries.ITEM,')
+        mod_lines.append(f'            new ResourceLocation("{modid}", "{entity_id}_spawn_egg"),')
+        mod_lines.append(f'            new SpawnEggItem({field_name}, {color1}, {color2}, new Item.Properties())')
+        mod_lines.append('        );')
+        mod_lines.append('')
+
+        if spawn.get('enabled', True):
+            weight = spawn.get('weight', 10)
+            min_count = spawn.get('min_count', 1)
+            max_count = spawn.get('max_count', 4)
+            biomes = spawn.get('biomes', [])
+
+            biome_keys = []
+            biome_tags = []
+            for biome in biomes:
+                if biome.startswith('#'):
+                    biome_tags.append(biome[1:])
+                else:
+                    biome_keys.append(biome)
+
+            selectors = []
+            if biome_keys:
+                key_entries = []
+                for b in biome_keys:
+                    ns, name = b.split(':', 1) if ':' in b else ('minecraft', b)
+                    key_entries.append(f'ResourceKey.create(Registries.BIOME, new ResourceLocation("{ns}", "{name}"))')
+                selectors.append('BiomeSelectors.includeByKey(\n                ' + ',\n                '.join(key_entries) + '\n            )')
+
+            if biome_tags:
+                tag_entries = []
+                for b in biome_tags:
+                    ns, name = b.split(':', 1) if ':' in b else ('minecraft', b)
+                    tag_entries.append(f'TagKey.create(Registries.BIOME, new ResourceLocation("{ns}", "{name}"))')
+                if len(tag_entries) == 1:
+                    selectors.append(f'BiomeSelectors.tag({tag_entries[0]})')
+                else:
+                    selectors.append(f'BiomeSelectors.tag({tag_entries[0]})' + ''.join(f'.or(BiomeSelectors.tag({t}))' for t in tag_entries[1:]))
+
+            if selectors:
+                if len(selectors) == 1:
+                    selector_expr = selectors[0]
+                else:
+                    selector_expr = selectors[0] + ''.join(f'.or({s})' for s in selectors[1:])
+
+                mod_lines.append(f'        BiomeModifications.addSpawn(')
+                mod_lines.append(f'            {selector_expr},')
+                mod_lines.append(f'            MobCategory.{category},')
+                mod_lines.append(f'            {field_name},')
+                mod_lines.append(f'            {weight}, {min_count}, {max_count}')
+                mod_lines.append('        );')
+                mod_lines.append('')
+
+    mod_lines.append('    }')
+    mod_lines.append('}')
+
+    path = os.path.join(entity_dir, 'ModEntities.java')
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(mod_lines))
+    print(f"Generated: {path}")
+
+    # Update client renderers
+    client_mod_file = f'src/client/java/{pkg_path}/client/ExampleModClient.java'
+    if os.path.exists(client_mod_file):
+        with open(client_mod_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        import_entity = f'import {group}.entity.ModEntities;'
+        if import_entity not in content:
+            if 'import ' in content:
+                content = content.replace('import ', f'{import_entity}\nimport ', 1)
+            else:
+                content = content.replace('package ', f'{import_entity}\n\npackage ', 1)
+
+        imports_needed = [
+            'import net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry;',
+            'import net.minecraft.client.model.CowModel;',
+            'import net.minecraft.client.model.geom.ModelLayers;',
+            'import net.minecraft.client.renderer.entity.MobRenderer;',
+            'import net.minecraft.resources.ResourceLocation;',
+        ]
+        for imp in imports_needed:
+            if imp not in content:
+                content = content.replace('import ', f'{imp}\nimport ', 1)
+
+        for entity in entities:
+            entity_id = entity['id']
+            class_name = pascal_case(entity_id)
+            field_name = const_case(entity_id)
+
+            # Import the entity class itself
+            entity_import = f'import {group}.entity.{class_name};'
+            if entity_import not in content:
+                content = content.replace('import ', f'{entity_import}\nimport ', 1)
+
+            reg_marker = f'EntityRendererRegistry.register(ModEntities.{field_name}'
+            if reg_marker in content:
+                continue
+
+            renderer_block = f'''        EntityRendererRegistry.register(ModEntities.{field_name}, context ->
+            new MobRenderer<{class_name}, CowModel<{class_name}>>(context, new CowModel<>(context.bakeLayer(ModelLayers.COW)), 0.5f) {{
+                @Override
+                public ResourceLocation getTextureLocation({class_name} entity) {{
+                    return new ResourceLocation("{modid}", "textures/entity/{entity_id}.png");
+                }}
+            }}
+        );'''
+
+            idx = content.find('public void onInitializeClient()')
+            if idx != -1:
+                brace_idx = content.find('{', idx)
+                if brace_idx != -1:
+                    content = content[:brace_idx + 1] + '\n' + renderer_block + content[brace_idx + 1:]
+
+        # Clean up unused imports after all renderers are processed
+        if 'EntityRendererRegistry' not in content:
+            content = re.sub(r'import net\.fabricmc\.fabric\.api\.client\.rendering\.v1\.EntityRendererRegistry;\n', '', content)
+            content = re.sub(r'import net\.minecraft\.client\.model\.CowModel;\n', '', content)
+            content = re.sub(r'import net\.minecraft\.client\.model\.geom\.ModelLayers;\n', '', content)
+            content = re.sub(r'import net\.minecraft\.client\.renderer\.entity\.MobRenderer;\n', '', content)
+            content = re.sub(r'import net\.minecraft\.resources\.ResourceLocation;\n', '', content)
+        # EntityModel is no longer used in our renderer blocks; always clean it
+        content = re.sub(r'import net\.minecraft\.client\.model\.EntityModel;\n', '', content)
+        if 'ModEntities.' not in content:
+            content = re.sub(rf'import {re.escape(group)}\.entity\.ModEntities;\n', '', content)
+        # Also remove entity class imports if no renderers reference them
+        for entity in entities:
+            class_name = pascal_case(entity['id'])
+            if class_name not in content:
+                content = re.sub(rf'import {re.escape(group)}\.entity\.{class_name};\n', '', content)
+
+        with open(client_mod_file, 'w', encoding='utf-8') as f:
+            f.write(content)
+        print(f"Updated: {client_mod_file}")
+
+    # Copy entity textures
+    for entity in entities:
+        entity_id = entity['id']
+        textures = entity.get('textures', {})
+        if 'entity' in textures:
+            val = textures['entity']
+            if val.startswith('./'):
+                src_path = val[2:]
+                if not src_path.endswith('.png'):
+                    src_path += '.png'
+                target_dir = f'src/main/resources/assets/{modid}/textures/entity'
+                target_path = os.path.join(target_dir, f'{entity_id}.png')
+                if os.path.exists(src_path):
+                    os.makedirs(target_dir, exist_ok=True)
+                    shutil.copy2(src_path, target_path)
+                    print(f"Copied texture: {src_path} -> {target_path}")
 
 
 def clean_generated_resources(config):
@@ -1284,24 +2430,29 @@ def main():
         print("No changes detected in createamod configs. Skipping update.")
         return
 
-    own_blocks, mixin_blocks, own_items = load_blocks(main_config)
+    own_blocks, mixin_blocks, own_items, mixin_items, own_entities, mixin_entities = load_blocks(main_config)
     config = {
         'modid': main_config.get('id', 'modid'),
         'group': main_config.get('group', 'com.example'),
         'own_blocks': own_blocks,
         'mixin_blocks': mixin_blocks,
         'own_items': own_items,
+        'mixin_items': mixin_items,
+        'own_entities': own_entities,
+        'mixin_entities': mixin_entities,
     }
     sync_modid(config, main_config)
     sync_group(config)
     clean_generated_resources(config)
     generate_mod_blocks(config)
     generate_mod_items(config)
+    generate_entities(config)
     update_example_mod(config)
     generate_blockstates(config)
     generate_models(config)
     generate_lang(config)
     generate_mixins(config)
+    generate_item_mixins(config)
     save_last_hash(current_hash)
     print("\nUpdate complete!")
 
