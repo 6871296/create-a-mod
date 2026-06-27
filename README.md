@@ -18,4 +18,4 @@
   createamod new -mcv [你模组适配的MC版本] [你模组的名字]
   ```
 5. `cd`刚才指令中输入的你模组的名字。
-6. 接下来你需要自己写JSON。具体可以参考`../create-a-mod/examples/*
+6. 接下来你需要自己写JSON。具体可以参考`../create-a-mod/examples/*`
